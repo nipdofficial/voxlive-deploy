@@ -9,7 +9,7 @@ from typing import AsyncIterator
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import history, live, meetings, transcribe
+from app.api.routes import admin, auth, history, live, meetings, transcribe
 from app.core.config import get_settings
 from app.core.observability import configure_error_monitoring, configure_logging, metrics
 from app.models.schemas import JobStatus, ProcessingStage, SessionType
@@ -127,6 +127,8 @@ app.include_router(transcribe.router, prefix=settings.api_prefix)
 app.include_router(live.router, prefix=settings.api_prefix)
 app.include_router(meetings.router, prefix=settings.api_prefix)
 app.include_router(history.router, prefix=settings.api_prefix)
+app.include_router(auth.router, prefix=settings.api_prefix)
+app.include_router(admin.router, prefix=settings.api_prefix)
 
 
 @app.middleware("http")

@@ -507,7 +507,7 @@ function TranscriptPanel({
   );
 }
 
-export default function App() {
+export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
   const [fontsLoaded] = useFonts({
     DMSans_400Regular,
     DMSans_500Medium,
@@ -1110,6 +1110,16 @@ export default function App() {
           >
             <Feather name={isDark ? "sun" : "moon"} size={17} color={isDark ? "#D8CDF8" : "#5C477A"} />
           </Pressable>
+          {onSignOut ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Sign out"
+              onPress={onSignOut}
+              style={({ pressed }) => [styles.themeButton, pressed && { opacity: 0.7 }]}
+            >
+              <Feather name="log-out" size={17} color={isDark ? "#D8CDF8" : "#5C477A"} />
+            </Pressable>
+          ) : null}
         </View>
       </View>
 

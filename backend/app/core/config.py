@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     sentry_dsn: str | None = None
     app_environment: str = "development"
 
+    # Administrator sign-in. Admin login is disabled until both are set.
+    admin_email: str | None = None
+    admin_password: str | None = None
+    auth_session_hours: float = 24.0
+
     model_config = SettingsConfigDict(env_file=BACKEND_DIR / ".env", extra="ignore")
 
     @property
