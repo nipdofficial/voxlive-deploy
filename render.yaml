@@ -12,6 +12,8 @@ services:
         value: production
       - key: APP_RELOAD
         value: "false"
+      - key: PYTHON_VERSION
+        value: "3.11.9"
       - key: ALLOWED_ORIGINS
         sync: false
       - key: VERTEX_SERVICE_ACCOUNT_JSON
