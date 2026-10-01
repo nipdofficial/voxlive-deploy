@@ -31,6 +31,3 @@ services:
         sync: false
       - key: SENTRY_DSN
         sync: false
-    secretFiles:
-      - name: service_account.json
-        mountPath: /etc/secrets/service_account.json
