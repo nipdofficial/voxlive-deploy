@@ -1,0 +1,36 @@
+services:
+  - type: web
+    name: helascribe-api
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: APP_ENVIRONMENT
+        value: production
+      - key: APP_RELOAD
+        value: "false"
+      - key: ALLOWED_ORIGINS
+        sync: false
+      - key: VERTEX_SERVICE_ACCOUNT_JSON
+        value: /etc/secrets/service_account.json
+      - key: GCP_PROJECT
+        sync: false
+      - key: HUGGINGFACE_TOKEN
+        sync: false
+      - key: ADMIN_EMAIL
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: LIVEKIT_URL
+        sync: false
+      - key: LIVEKIT_API_KEY
+        sync: false
+      - key: LIVEKIT_API_SECRET
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+    secretFiles:
+      - name: service_account.json
+        mountPath: /etc/secrets/service_account.json

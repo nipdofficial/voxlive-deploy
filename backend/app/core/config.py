@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     app_name: str = "HelaScribe API"
     app_host: str = "0.0.0.0"
     app_port: int = 8000
-    app_reload: bool = True
+    app_reload: bool = False
     api_prefix: str = "/api"
     allowed_origins: str = "*"
 

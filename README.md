@@ -109,6 +109,27 @@ npm run typecheck
 npm run build:web
 ```
 
+## Deployment
+
+The repository includes deployment configuration for a split Render/Vercel deployment:
+
+1. In Render, create a Blueprint from the repository. `render.yaml` creates the
+	FastAPI web service from `backend/`, binds Uvicorn to Render's `PORT`, and
+	mounts the Google service-account JSON as a secret file.
+2. In the Render service, set the values marked `sync: false` in `render.yaml`.
+	Set `ALLOWED_ORIGINS` to the final Vercel URL, such as
+	`https://helascribe.vercel.app`. Paste the service-account JSON into Render's
+	Secret Files entry named `service_account.json`.
+3. In Vercel, import the same repository and set the project Root Directory to
+	`frontend`. `frontend/vercel.json` builds the Expo web export into `dist`.
+4. Add the Vercel environment variable `EXPO_PUBLIC_API_URL` with the Render
+	API URL plus `/api`, such as
+	`https://helascribe-api.onrender.com/api`, then redeploy Vercel.
+
+Render's default filesystem is ephemeral, so the JSON history and uploaded audio
+under `backend/data/` will be lost on restart or redeploy. Use a database and
+object storage before treating this as a production multi-user deployment.
+
 ## Processing behavior
 
 - Live PCM is transcribed in overlapping chunks by Gemini 3.5 Transcribe Live Preview as a provisional preview. Overlap prevents words at chunk boundaries from being cut in half; midpoint filtering prevents duplicate preview segments.
