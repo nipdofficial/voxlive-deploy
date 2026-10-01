@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Image,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -15,14 +14,7 @@ import { StatusBar } from "expo-status-bar";
 import { LinearGradient } from "expo-linear-gradient";
 import { Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 
-import {
-  approveQrLogin,
-  getQrLoginStatus,
-  login,
-  register,
-  startQrLogin,
-  type AuthSession,
-} from "./authApi";
+import { login, register, type AuthSession } from "./authApi";
 import { authPalette, type AuthPalette } from "./authTheme";
 
 type Mode = "login" | "register";
@@ -49,11 +41,6 @@ export default function AuthScreen({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(initialNotice ?? null);
-  const [qrToken] = useState<string | null>(() => (
-    Platform.OS === "web" ? new URLSearchParams(window.location.search).get("qr") : null
-  ));
-  const [qrCode, setQrCode] = useState<string | null>(null);
-  const [qrBusy, setQrBusy] = useState(false);
   const passwordRef = useRef<TextInput>(null);
   const emailRef = useRef<TextInput>(null);
   const confirmRef = useRef<TextInput>(null);
@@ -64,56 +51,6 @@ export default function AuthScreen({
     setNotice(null);
     setPassword("");
     setConfirm("");
-  };
-
-  useEffect(() => {
-    if (!qrCode) return;
-    const token = new URLSearchParams(window.location.search).get("qr");
-    if (!token) return;
-    let cancelled = false;
-    const poll = async () => {
-      try {
-        const result = await getQrLoginStatus(token);
-        if (cancelled) return;
-        if (result.status === "approved" && result.token && result.user) {
-          onSignedIn({ token: result.token, expires_at: result.expires_at ?? new Date().toISOString(), user: result.user });
-          return;
-        }
-        if (result.status === "expired") {
-          setQrCode(null);
-          setError("This QR code expired. Generate a new one.");
-        }
-      } catch (caught) {
-        if (!cancelled) setError(caught instanceof Error ? caught.message : "QR sign-in failed");
-      }
-    };
-    const timer = setInterval(() => void poll(), 1500);
-    void poll();
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [qrCode, onSignedIn]);
-
-  const beginQrLogin = async () => {
-    if (Platform.OS !== "web" || qrBusy) return;
-    setQrBusy(true);
-    setError(null);
-    setNotice(null);
-    try {
-      const { token } = await startQrLogin();
-      const { default: QRCode } = await import("qrcode");
-      const url = new URL(window.location.href);
-      url.searchParams.set("qr", token);
-      url.hash = "";
-      setQrCode(await QRCode.toDataURL(url.toString(), { margin: 2, width: 240 }));
-      window.history.replaceState({}, "", url);
-      setNotice("Scan this code with another device to approve sign-in.");
-    } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "Could not create a QR code");
-    } finally {
-      setQrBusy(false);
-    }
   };
 
   const submit = async () => {
@@ -128,19 +65,6 @@ export default function AuthScreen({
       if (password !== confirm) return setError("Passwords do not match");
     } else if (!trimmedEmail || !password) {
       return setError("Enter your email and password");
-    }
-    if (qrToken) {
-      setBusy(true);
-      try {
-        await approveQrLogin(qrToken, trimmedEmail, password);
-        setError(null);
-        setNotice("Sign-in approved. Return to the device that displayed the QR code.");
-      } catch (caught) {
-        setError(caught instanceof Error ? caught.message : "QR sign-in failed");
-      } finally {
-        setBusy(false);
-      }
-      return;
     }
     setBusy(true);
     try {
@@ -188,7 +112,7 @@ export default function AuthScreen({
               </View>
             </View>
 
-            {!qrToken ? <View style={styles.segment} accessibilityRole="tablist">
+            <View style={styles.segment} accessibilityRole="tablist">
               {(["login", "register"] as const).map((item) => (
                 <Pressable
                   key={item}
@@ -202,13 +126,11 @@ export default function AuthScreen({
                   </Text>
                 </Pressable>
               ))}
-            </View> : null}
+            </View>
 
-            <Text style={styles.title}>{qrToken ? "Approve sign-in" : isRegister ? "Create your account" : "Welcome back"}</Text>
+            <Text style={styles.title}>{isRegister ? "Create your account" : "Welcome back"}</Text>
             <Text style={styles.subtitle}>
-              {qrToken
-                ? "Enter your VoxLive credentials to approve this device."
-                : isRegister
+              {isRegister
                 ? "Register once, then sign in to start transcribing."
                 : "Sign in to continue to your transcripts."}
             </Text>
@@ -317,34 +239,12 @@ export default function AuthScreen({
               )}
             </Pressable>
 
-            {!isRegister && !qrToken && Platform.OS === "web" ? (
-              <>
-                {qrCode ? (
-                  <View style={styles.qrPanel}>
-                    <Image source={{ uri: qrCode }} style={styles.qrImage} />
-                    <Text style={styles.qrHelp}>Waiting for approval...</Text>
-                  </View>
-                ) : null}
-                <Pressable
-                  accessibilityRole="button"
-                  disabled={qrBusy}
-                  onPress={() => void beginQrLogin()}
-                  style={({ pressed }) => [styles.secondaryButton, (pressed || qrBusy) && { opacity: 0.7 }]}
-                >
-                  {qrBusy ? <ActivityIndicator color={c.purpleText} /> : <Text style={styles.secondaryButtonText}>Sign in with QR code</Text>}
-                </Pressable>
-              </>
-            ) : null}
-
             <View style={styles.footer}>
               <Text style={styles.footerText}>
-                {qrToken ? "Finished approving?" : isRegister ? "Already have an account?" : "New to VoxLive?"}
+                {isRegister ? "Already have an account?" : "New to VoxLive?"}
               </Text>
-              <Pressable accessibilityRole="button" onPress={() => {
-                if (qrToken && Platform.OS === "web") window.location.href = window.location.origin;
-                else switchMode(isRegister ? "login" : "register");
-              }}>
-                <Text style={styles.footerLink}>{qrToken ? "Open regular sign in" : isRegister ? "Sign in" : "Create an account"}</Text>
+              <Pressable accessibilityRole="button" onPress={() => switchMode(isRegister ? "login" : "register")}>
+                <Text style={styles.footerLink}>{isRegister ? "Sign in" : "Create an account"}</Text>
               </Pressable>
             </View>
           </View>
@@ -404,11 +304,6 @@ function createStyles(c: AuthPalette) {
     eyeButton: { position: "absolute", right: 4, width: 40, height: 40, alignItems: "center", justifyContent: "center" },
     primaryButton: { height: 50, borderRadius: 13, backgroundColor: c.accent, alignItems: "center", justifyContent: "center", marginTop: 22 },
     primaryButtonText: { color: "white", fontFamily: "DMSans_700Bold", fontSize: 15 },
-    secondaryButton: { height: 46, borderRadius: 13, borderWidth: 1, borderColor: c.strongBorder, alignItems: "center", justifyContent: "center", marginTop: 12 },
-    secondaryButtonText: { color: c.purpleText, fontFamily: "DMSans_700Bold", fontSize: 14 },
-    qrPanel: { alignItems: "center", gap: 8, marginTop: 16, padding: 14, borderRadius: 14, backgroundColor: c.bg },
-    qrImage: { width: 240, height: 240 },
-    qrHelp: { color: c.muted, fontFamily: "DMSans_500Medium", fontSize: 13 },
     footer: { flexDirection: "row", justifyContent: "center", flexWrap: "wrap", gap: 6, marginTop: 18 },
     footerText: { color: c.muted, fontFamily: "DMSans_400Regular", fontSize: 14 },
     footerLink: { color: c.purpleText, fontFamily: "DMSans_700Bold", fontSize: 14 },

@@ -1,6 +1,5 @@
 from datetime import datetime
 from enum import Enum
-from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -60,24 +59,6 @@ class LoginResponse(BaseModel):
     token: str
     expires_at: datetime
     user: AuthUser
-
-
-class QRStartResponse(BaseModel):
-    token: str
-    expires_at: datetime
-
-
-class QRApproveRequest(BaseModel):
-    token: str = Field(min_length=20, max_length=256)
-    email: str = Field(max_length=254)
-    password: str = Field(max_length=128)
-
-
-class QRStatusResponse(BaseModel):
-    status: Literal["pending", "approved", "expired"]
-    token: str | None = None
-    expires_at: datetime | None = None
-    user: AuthUser | None = None
 
 
 class AdminSession(BaseModel):

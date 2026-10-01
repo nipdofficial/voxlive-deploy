@@ -114,24 +114,3 @@ def test_admin_login_disabled_without_password(client: TestClient, monkeypatch) 
     monkeypatch.setattr(get_settings(), "admin_password", None)
     response = client.post("/api/auth/login", json={"email": ADMIN_EMAIL, "password": ""})
     assert response.status_code == 401
-
-
-def test_qr_login_approves_once_and_returns_a_session(client: TestClient) -> None:
-    assert _register(client).status_code == 201
-    started = client.post("/api/auth/qr/start")
-    assert started.status_code == 200
-    qr_token = started.json()["token"]
-
-    assert client.get(f"/api/auth/qr/status?token={qr_token}").json()["status"] == "pending"
-    approved = client.post(
-        "/api/auth/qr/approve",
-        json={"token": qr_token, "email": "anu@example.com", "password": "password123"},
-    )
-    assert approved.status_code == 204
-
-    status_response = client.get(f"/api/auth/qr/status?token={qr_token}")
-    assert status_response.status_code == 200
-    session = status_response.json()
-    assert session["status"] == "approved"
-    assert session["user"]["email"] == "anu@example.com"
-    assert client.get(f"/api/auth/qr/status?token={qr_token}").json()["status"] == "expired"

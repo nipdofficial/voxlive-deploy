@@ -15,18 +15,6 @@ export interface AuthSession {
   user: AuthUser;
 }
 
-export interface QRLoginStart {
-  token: string;
-  expires_at: string;
-}
-
-export interface QRLoginStatus {
-  status: "pending" | "approved" | "expired";
-  token?: string;
-  expires_at?: string;
-  user?: AuthUser;
-}
-
 export interface AdminSession {
   id: string;
   user_id: string;
@@ -101,21 +89,6 @@ export function register(name: string, email: string, password: string): Promise
 
 export function login(email: string, password: string): Promise<AuthSession> {
   return request("/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
-}
-
-export function startQrLogin(): Promise<QRLoginStart> {
-  return request("/auth/qr/start", { method: "POST" });
-}
-
-export function approveQrLogin(token: string, email: string, password: string): Promise<void> {
-  return request("/auth/qr/approve", {
-    method: "POST",
-    body: JSON.stringify({ token, email, password }),
-  });
-}
-
-export function getQrLoginStatus(token: string): Promise<QRLoginStatus> {
-  return request(`/auth/qr/status?token=${encodeURIComponent(token)}`);
 }
 
 export function getMe(token: string): Promise<AuthUser> {
