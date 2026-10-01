@@ -254,6 +254,8 @@ async def live_transcription(websocket: WebSocket) -> None:
                         record,
                         offset,
                     )
+                except asyncio.CancelledError:
+                    return
                 except Exception as exc:
                     # A transient Gemini/quota failure must not terminate the
                     # microphone WebSocket. The final full-audio pass can fill
@@ -314,6 +316,7 @@ async def live_transcription(websocket: WebSocket) -> None:
             asyncio.create_task(transcribe_chunks())
             for _ in range(2)
         ]
+        workers_gather = asyncio.gather(*workers, return_exceptions=True)
         queued_bytes = 0
         overlap_bytes = min(
             chunk_bytes // 2,
@@ -354,13 +357,13 @@ async def live_transcription(websocket: WebSocket) -> None:
                         await queue.put(None)
                     try:
                         await asyncio.wait_for(
-                            asyncio.shield(asyncio.gather(*workers)),
+                            asyncio.shield(workers_gather),
                             timeout=settings.live_stop_preview_grace_seconds,
                         )
                     except TimeoutError:
                         for task in workers:
                             task.cancel()
-                        await asyncio.gather(*workers, return_exceptions=True)
+                        await workers_gather
                 else:
                     # Preserve the old drain behavior when the full pass is
                     # disabled or the recording is too large for inline input.
@@ -372,7 +375,7 @@ async def live_transcription(websocket: WebSocket) -> None:
                         pending.clear()
                     for _ in workers:
                         await queue.put(None)
-                    await asyncio.gather(*workers)
+                    await workers_gather
                 break
 
         path = settings.data_dir / "audio" / record.audio_filename
