@@ -79,6 +79,7 @@ class AuthStore:
     def __init__(self) -> None:
         self._users: dict[str, StoredUser] = {}
         self._sessions: dict[str, SessionRecord] = {}
+        self._qr_logins: dict[str, dict[str, object]] = {}
         self._failed_logins: dict[str, list[float]] = {}
         self._lock = asyncio.Lock()
         self._loaded = False
@@ -243,6 +244,62 @@ class AuthStore:
         async with self._lock:
             if self._sessions.pop(_token_digest(token), None) is not None:
                 await self._persist_sessions()
+
+    async def start_qr_login(self) -> tuple[str, datetime]:
+        token = secrets.token_urlsafe(32)
+        expires_at = _now() + timedelta(minutes=2)
+        async with self._lock:
+            now = _now()
+            self._qr_logins = {
+                digest: request
+                for digest, request in self._qr_logins.items()
+                if request["expires_at"] > now
+            }
+            self._qr_logins[_token_digest(token)] = {
+                "expires_at": expires_at,
+                "approved": None,
+            }
+        return token, expires_at
+
+    async def approve_qr_login(
+        self,
+        token: str,
+        email: str,
+        password: str,
+        *,
+        ip: str | None,
+        user_agent: str | None,
+    ) -> None:
+        digest = _token_digest(token)
+        async with self._lock:
+            request = self._qr_logins.get(digest)
+            if request is None or request["expires_at"] <= _now():
+                self._qr_logins.pop(digest, None)
+                raise AuthError("This QR sign-in request has expired", 410)
+
+        session_token, session = await self.login(email, password, ip=ip, user_agent=user_agent)
+        async with self._lock:
+            request = self._qr_logins.get(digest)
+            if request is None or request["expires_at"] <= _now():
+                raise AuthError("This QR sign-in request has expired", 410)
+            request["approved"] = (session_token, session)
+
+    async def qr_login_status(
+        self, token: str
+    ) -> tuple[str, datetime, str | None, SessionRecord | None]:
+        digest = _token_digest(token)
+        async with self._lock:
+            request = self._qr_logins.get(digest)
+            if request is None or request["expires_at"] <= _now():
+                self._qr_logins.pop(digest, None)
+                return "expired", _now(), None, None
+            expires_at = request["expires_at"]
+            approved = request["approved"]
+            if approved is None:
+                return "pending", expires_at, None, None
+            session_token, session = approved
+            del self._qr_logins[digest]
+            return "approved", expires_at, session_token, session
 
     async def revoke_session(self, session_id: str) -> bool:
         await self._ensure_loaded()

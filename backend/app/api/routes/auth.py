@@ -1,6 +1,16 @@
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 
-from app.models.auth import AuthUser, LoginRequest, LoginResponse, RegisterRequest, Role, SessionRecord
+from app.models.auth import (
+    AuthUser,
+    LoginRequest,
+    LoginResponse,
+    QRApproveRequest,
+    QRStartResponse,
+    QRStatusResponse,
+    RegisterRequest,
+    Role,
+    SessionRecord,
+)
 from app.services.auth_service import AuthError, auth_store
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -50,6 +60,38 @@ async def login(body: LoginRequest, request: Request) -> LoginResponse:
     except AuthError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
     return LoginResponse(token=token, expires_at=session.expires_at, user=_as_user(session))
+
+
+@router.post("/qr/start", response_model=QRStartResponse)
+async def start_qr_login() -> QRStartResponse:
+    token, expires_at = await auth_store.start_qr_login()
+    return QRStartResponse(token=token, expires_at=expires_at)
+
+
+@router.post("/qr/approve", status_code=status.HTTP_204_NO_CONTENT)
+async def approve_qr_login(body: QRApproveRequest, request: Request) -> Response:
+    try:
+        await auth_store.approve_qr_login(
+            body.token,
+            body.email,
+            body.password,
+            ip=request.client.host if request.client else None,
+            user_agent=request.headers.get("user-agent"),
+        )
+    except AuthError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/qr/status", response_model=QRStatusResponse)
+async def qr_login_status(token: str = Query(min_length=20, max_length=256)) -> QRStatusResponse:
+    qr_status, expires_at, session_token, session = await auth_store.qr_login_status(token)
+    return QRStatusResponse(
+        status=qr_status,
+        token=session_token,
+        expires_at=session.expires_at if session else expires_at,
+        user=_as_user(session) if session else None,
+    )
 
 
 @router.get("/me", response_model=AuthUser)
