@@ -37,7 +37,7 @@ import {
   useFonts,
 } from "@expo-google-fonts/dm-sans";
 
-import { cancelTranscription, createMeeting, deleteTranscript, endMeeting, generateTranscriptSummary, getHistory, joinMeeting, renameTranscriptSpeaker, retryTranscription, submitAudio, translateTranscript, updateTranscript, WS_URL } from "./api";
+import { cancelTranscription, createMeeting, deleteTranscript, endMeeting, generateTranscriptSummary, getHistory, getTranscript, joinMeeting, renameTranscriptSpeaker, retryTranscription, submitAudio, translateTranscript, updateTranscript, WS_URL } from "./api";
 import type { Language, MeetingConnection, ProcessingStage, Segment, SessionType, TranscriptRecord, TranscriptSummary } from "./types";
 import type { MeetingClient, MeetingParticipantView } from "./livekitMeeting";
 import { startWebAudioStream, type WebAudioStream } from "./webAudioStream";
@@ -793,6 +793,28 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
   };
 
   useEffect(() => { void refreshHistory(); }, [refreshHistory]);
+
+  // WebSocket events are low-latency, but polling keeps background jobs visible
+  // when a hosted proxy drops or delays an event.
+  useEffect(() => {
+    if (!trackedJobIds.length) return;
+    let cancelled = false;
+    const poll = async () => {
+      const records = await Promise.all(
+        trackedJobIds.map((id) => getTranscript(id).catch(() => null)),
+      );
+      if (!cancelled) {
+        records.filter((record): record is TranscriptRecord => record !== null)
+          .forEach(applyRecordUpdate);
+      }
+    };
+    void poll();
+    const timer = setInterval(() => void poll(), 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [trackedJobIds, applyRecordUpdate]);
 
   useEffect(() => {
     if (tab !== "history") return;
