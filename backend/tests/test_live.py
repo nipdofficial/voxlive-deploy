@@ -143,6 +143,8 @@ def test_live_chunk_requests_provisional_gemini_speakers(monkeypatch) -> None:
             "include_speakers": True,
             "audio_duration_seconds": 1.0,
             "request_timeout_seconds": 12.0,
+            "verify_mixed_language": False,
+            "use_structured_mixed_model": False,
         }
     ]
 

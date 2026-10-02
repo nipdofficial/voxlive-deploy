@@ -204,6 +204,8 @@ class GeminiService:
         audio_duration_seconds: float | None = None,
         request_timeout_seconds: float | None = None,
         translate_to: Language | None = None,
+        verify_mixed_language: bool = True,
+        use_structured_mixed_model: bool = True,
         _retry_language: bool = True,
     ) -> list[TranscriptSegment]:
         speaker_guidance = (
@@ -240,7 +242,11 @@ class GeminiService:
         # must classify each utterance from the audio and return native-script
         # text plus its detected language. Keep the specialised model for
         # explicit single-language modes and their lower-latency live previews.
-        if language == Language.mixed and _is_transcription_model(selected_model):
+        if (
+            use_structured_mixed_model
+            and language == Language.mixed
+            and _is_transcription_model(selected_model)
+        ):
             selected_model = self.settings.gemini_text_model
         transcribe_model = _is_transcription_model(selected_model)
         if transcribe_model:
@@ -310,6 +316,7 @@ class GeminiService:
         normalized = bound_segments_to_duration(normalized, audio_duration_seconds)
         if (
             language == Language.mixed
+            and verify_mixed_language
             and _retry_language
             and normalized
             and not any(
@@ -336,6 +343,8 @@ class GeminiService:
                     audio_duration_seconds=audio_duration_seconds,
                     request_timeout_seconds=request_timeout_seconds,
                     translate_to=translate_to,
+                    verify_mixed_language=verify_mixed_language,
+                    use_structured_mixed_model=use_structured_mixed_model,
                     _retry_language=False,
                 )
         if timestamp_offset:

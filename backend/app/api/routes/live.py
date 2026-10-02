@@ -112,6 +112,8 @@ async def _transcribe_live_chunk(
         "audio/wav",
         record.language,
         **request,
+        verify_mixed_language=False,
+        use_structured_mixed_model=False,
     )
 
 

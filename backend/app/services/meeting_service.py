@@ -314,6 +314,8 @@ class MeetingSession:
                     model=settings.gemini_live_model,
                     audio_duration_seconds=len(chunk) / (SAMPLE_RATE * 2),
                     request_timeout_seconds=settings.gemini_live_timeout_seconds,
+                    verify_mixed_language=False,
+                    use_structured_mixed_model=False,
                 )
                 labeled = label_segments(
                     raw,
