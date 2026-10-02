@@ -1,7 +1,8 @@
 import { File as ExpoFile } from "expo-file-system";
 import { Platform } from "react-native";
 
-import type { Language, MeetingConnection, SessionType, TranscriptRecord, TranscriptSummary } from "./types";
+import type { Language, MeetingConnection, SessionInfo, SessionType, TranscriptRecord, TranscriptSummary } from "./types";
+
 
 export const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8000/api";
 export const WS_URL = API_URL.replace(/^http/, "ws") + "/live";
@@ -135,11 +136,15 @@ export function createMeeting(
   displayName: string,
   language: Language,
   sharedMic: boolean,
+  title: string = "Online meeting",
+  maxParticipants: number = 0,
 ): Promise<MeetingConnection> {
   return meetingRequest("/meetings", {
     display_name: displayName,
     language,
     shared_mic: sharedMic,
+    title,
+    max_participants: maxParticipants,
   });
 }
 
@@ -162,4 +167,14 @@ export async function endMeeting(roomCode: string, hostSecret: string): Promise<
   });
   if (!response.ok) throw new Error((await response.text()) || "Could not end meeting");
   return response.json();
+}
+
+export async function getSessionInfo(roomCode: string): Promise<SessionInfo> {
+  const response = await fetch(`${API_URL}/meetings/${encodeURIComponent(roomCode.trim().toUpperCase())}`);
+  if (!response.ok) throw new Error("Session not found");
+  return response.json();
+}
+
+export function getSessionQrUrl(roomCode: string): string {
+  return `${API_URL}/meetings/${encodeURIComponent(roomCode.trim().toUpperCase())}/qr`;
 }

@@ -42,6 +42,7 @@ import type { Language, MeetingConnection, ProcessingStage, Segment, SessionType
 import type { MeetingClient, MeetingParticipantView } from "./livekitMeeting";
 import { startWebAudioStream, type WebAudioStream } from "./webAudioStream";
 import { useHistoryEvents } from "./hooks/useHistoryEvents";
+import { SessionManagementScreen } from "./SessionManagementScreen";
 
 const SESSION_TYPES: Array<{
   value: SessionType;
@@ -519,7 +520,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
   const [isDark, setIsDark] = useState(systemScheme !== "light");
   const styles = useMemo(() => createStyles(isDark, width), [isDark, width]);
   const isWide = width >= 900;
-  const [tab, setTab] = useState<"new" | "history">("new");
+  const [tab, setTab] = useState<"new" | "history" | "sessions">("new");
   const [language] = useState<Language>("Mixed");
   const [sessionType, setSessionType] = useState<SessionType>("Live");
   const [diarization] = useState(false);
@@ -1120,6 +1121,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
         {isWide ? (
           <View style={styles.desktopNav}>
             <Pressable onPress={() => { setTab("new"); setSelected(null); }} style={[styles.navItem, tab === "new" && styles.navItemActive]}><Feather name="plus-circle" size={17} color={tab === "new" ? "#C4B5FD" : "#8F8A9E"} /><Text style={[styles.navText, tab === "new" && styles.navTextActive]}>New transcript</Text></Pressable>
+            <Pressable onPress={() => { setTab("sessions"); setSelected(null); }} style={[styles.navItem, tab === "sessions" && styles.navItemActive]}><Feather name="users" size={17} color={tab === "sessions" ? "#C4B5FD" : "#8F8A9E"} /><Text style={[styles.navText, tab === "sessions" && styles.navTextActive]}>Sessions</Text></Pressable>
             <Pressable onPress={() => { setTab("history"); void refreshHistory(); }} style={[styles.navItem, tab === "history" && styles.navItemActive]}><Feather name="clock" size={17} color={tab === "history" ? "#C4B5FD" : "#8F8A9E"} /><Text style={[styles.navText, tab === "history" && styles.navTextActive]}>History</Text></Pressable>
           </View>
         ) : null}
@@ -1145,7 +1147,27 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
         </View>
       </View>
 
-      {tab === "history" ? (
+      {tab === "sessions" ? (
+        <SessionManagementScreen
+          isDark={isDark}
+          onJoinSession={async (code, name) => {
+            setMeetingCode(code);
+            setMeetingName(name);
+            setSessionType("Meeting");
+            setTab("new");
+            try {
+              setBusy(true);
+              setStatus("joining");
+              const connection = await joinMeeting(code, name, diarization);
+              await connectToMeeting(connection);
+            } catch (err) {
+              setMeetingConnection(null);
+              setBusy(false);
+              Alert.alert("Join Session", err instanceof Error ? err.message : "Could not join session");
+            }
+          }}
+        />
+      ) : tab === "history" ? (
         <ScrollView key="history" ref={historyScrollRef} onContentSizeChange={() => historyScrollRef.current?.scrollTo({ y: 0, animated: false })} contentContainerStyle={styles.historyPage}>
           {!isWide && selected ? (
             <View style={styles.historyDetail}>
