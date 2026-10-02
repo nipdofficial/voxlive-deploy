@@ -151,7 +151,14 @@ class AuthStore:
         if admin_email and email == normalize_email(admin_email):
             raise AuthError("This email cannot be registered", 409)
         async with self._lock:
-            if self._find_user_by_email(email):
+            existing = self._find_user_by_email(email)
+            if existing:
+                # Repeated registration attempts with the same valid
+                # credentials are harmless and recover the normal sign-in
+                # path after a stale client session. Never overwrite the
+                # stored password or accept a different password here.
+                if verify_password(password, existing.password_hash):
+                    return existing.public()
                 raise AuthError("An account with this email already exists", 409)
             user = StoredUser(
                 id=str(uuid4()),
@@ -229,8 +236,11 @@ class AuthStore:
             return None
         if session.user_id != ADMIN_USER_ID and session.user_id not in self._users:
             return None
-        # Persist activity at most once a minute to keep heartbeats cheap.
-        if now - session.last_seen_at >= timedelta(seconds=60):
+        # Keep actively used sessions alive. Persist activity at most once a
+        # minute so the heartbeat does not cause excessive disk writes.
+        should_persist = now - session.last_seen_at >= timedelta(seconds=60)
+        session.expires_at = now + timedelta(hours=get_settings().auth_session_hours)
+        if should_persist:
             session.last_seen_at = now
             async with self._lock:
                 await self._persist_sessions()

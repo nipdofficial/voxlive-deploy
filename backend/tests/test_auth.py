@@ -59,8 +59,19 @@ def test_registration_validation(client: TestClient) -> None:
     assert _register(client, password="short").status_code == 400
     assert _register(client, email="not-an-email").status_code == 400
     assert _register(client).status_code == 201
-    assert _register(client).status_code == 409
+    assert _register(client).status_code == 201
     assert _register(client, email=ADMIN_EMAIL).status_code == 409
+
+
+def test_repeated_registration_with_same_credentials_is_idempotent(client: TestClient) -> None:
+    first = _register(client)
+    repeated = _register(client)
+    wrong_password = _register(client, password="different123")
+
+    assert first.status_code == 201
+    assert repeated.status_code == 201
+    assert repeated.json()["id"] == first.json()["id"]
+    assert wrong_password.status_code == 409
 
 
 def test_wrong_password_is_rejected_and_rate_limited(client: TestClient) -> None:
