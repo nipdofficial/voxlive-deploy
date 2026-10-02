@@ -172,8 +172,8 @@ async def translate_history(record_id: str, body: TranscriptTranslate) -> Transc
         raise HTTPException(status_code=404, detail="Transcript not found")
     if record.status != JobStatus.completed or not record.segments:
         raise HTTPException(status_code=409, detail="A completed transcript is required")
-    if body.target_language == Language.mixed:
-        raise HTTPException(status_code=422, detail="Choose one translation language")
+    if body.target_language != Language.tamil:
+        raise HTTPException(status_code=422, detail="Tamil is the only supported translation target")
     try:
         translated = await GeminiService().translate_segments(record.segments, body.target_language)
     except Exception as exc:

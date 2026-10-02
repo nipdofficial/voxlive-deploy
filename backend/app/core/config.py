@@ -1,6 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.models.schemas import Language
@@ -57,6 +58,12 @@ class Settings(BaseSettings):
     auth_session_hours: float = 24.0
 
     model_config = SettingsConfigDict(env_file=BACKEND_DIR / ".env", extra="ignore")
+
+    @model_validator(mode="after")
+    def enforce_tamil_translation_target(self) -> "Settings":
+        """Keep deployment/environment overrides from selecting another target."""
+        self.target_language = Language.tamil
+        return self
 
     @property
     def origins(self) -> list[str]:

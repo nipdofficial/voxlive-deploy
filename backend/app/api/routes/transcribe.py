@@ -38,6 +38,23 @@ ALLOWED_AUDIO_SUFFIXES = {
     ".webm",
 }
 
+UPLOAD_MIME_TYPES = {
+    ".aac": "audio/aac", ".flac": "audio/flac", ".m4a": "audio/mp4",
+    ".mp3": "audio/mpeg", ".mp4": "audio/mp4", ".mpeg": "audio/mpeg",
+    ".ogg": "audio/ogg", ".opus": "audio/ogg", ".wav": "audio/wav",
+    ".webm": "audio/webm",
+}
+
+
+def _upload_mime_type(content_type: str | None, suffix: str) -> str:
+    """Prefer a trusted browser MIME type, with an extension fallback."""
+    normalized = (content_type or "").split(";", 1)[0].strip().lower()
+    if normalized.startswith("audio/"):
+        return normalized
+    if normalized == "video/mp4" and suffix == ".mp4":
+        return "audio/mp4"
+    return UPLOAD_MIME_TYPES.get(suffix, "audio/wav")
+
 
 def _start_task(coroutine, record_id: str | None = None) -> None:
     """Keep in-process jobs strongly referenced until they finish."""
@@ -122,7 +139,7 @@ async def _process(record: TranscriptRecord, path: Path, mime_type: str) -> None
             transcript = await gemini.transcribe_file(
                 audio,
                 mime_type,
-                Language.mixed,
+                record.language,
                 include_speakers=record.diarization,
                 audio_duration_seconds=known_duration,
                 translate_to=get_settings().target_language
@@ -213,7 +230,7 @@ async def transcribe_audio(
         audio_filename=path.name,
     )
     await save_record(record)
-    _start_task(_process(record, path, file.content_type or "audio/wav"), record.id)
+    _start_task(_process(record, path, _upload_mime_type(file.content_type, suffix)), record.id)
     return JobAccepted(id=record.id, status=record.status)
 
 

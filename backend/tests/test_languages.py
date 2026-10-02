@@ -1,3 +1,4 @@
+from app.core.config import Settings
 from app.models.schemas import Language, SpokenLanguage, TranscriptSegment
 from app.services.gemini_service import (
     LANGUAGE_GUIDANCE,
@@ -23,6 +24,11 @@ def test_script_detection_covers_supported_languages() -> None:
     assert detect_script_language("தமிழ்") == SpokenLanguage.tamil
     assert detect_script_language("English") == SpokenLanguage.english
     assert detect_script_language("123") == SpokenLanguage.unknown
+    assert detect_script_language("a") == SpokenLanguage.unknown
+
+
+def test_settings_cannot_change_translation_target() -> None:
+    assert Settings(target_language=Language.english).target_language == Language.tamil
 
 
 def test_monolingual_mode_filters_other_scripts() -> None:

@@ -4,7 +4,7 @@ import io
 import pytest
 from fastapi import HTTPException, UploadFile
 
-from app.api.routes.transcribe import _read_limited, _wav_duration
+from app.api.routes.transcribe import _read_limited, _upload_mime_type, _wav_duration
 from app.services.audio_service import wav_rms
 
 
@@ -36,3 +36,10 @@ def test_wav_duration_uses_actual_frames() -> None:
 
     assert _wav_duration(output.getvalue()) == 1.0
     assert wav_rms(output.getvalue()) == 0.0
+
+
+def test_upload_mime_type_falls_back_for_generic_picker_types() -> None:
+    assert _upload_mime_type("application/octet-stream", ".m4a") == "audio/mp4"
+    assert _upload_mime_type(None, ".webm") == "audio/webm"
+    assert _upload_mime_type("video/mp4", ".mp4") == "audio/mp4"
+    assert _upload_mime_type("audio/x-custom", ".wav") == "audio/x-custom"

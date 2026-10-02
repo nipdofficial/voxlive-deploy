@@ -75,7 +75,8 @@ def detect_script_language(text: str) -> SpokenLanguage:
         SpokenLanguage.english: sum(char.isascii() and char.isalpha() for char in text),
     }
     language, count = max(counts.items(), key=lambda item: item[1])
-    return language if count else SpokenLanguage.unknown
+    # A single script-looking character is not enough to label noisy output.
+    return language if count >= 2 else SpokenLanguage.unknown
 
 
 def normalize_language_segments(

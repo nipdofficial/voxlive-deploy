@@ -705,7 +705,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
   };
 
   const translateRecord = async (record: TranscriptRecord, target: Language) => {
-    if (target === "Mixed" || translatingRecordId) return;
+    if (target !== "Tamil" || translatingRecordId) return;
     setTranslatingRecordId(record.id);
     try {
       applyRecordUpdate(await translateTranscript(record.id, target));

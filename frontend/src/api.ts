@@ -50,7 +50,8 @@ export async function translateTranscript(id: string, targetLanguage: Language):
   const response = await fetch(`${API_URL}/history/${encodeURIComponent(id)}/translate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ target_language: targetLanguage }),
+    // Keep the parameter for caller compatibility, but translation is always Tamil.
+    body: JSON.stringify({ target_language: "Tamil" satisfies Language }),
   });
   if (!response.ok) throw new Error((await response.text()) || "Could not translate transcript");
   return response.json();
