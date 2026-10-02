@@ -146,6 +146,52 @@ class GeminiService:
             location=settings.gcp_location,
         )
 
+    async def _detect_audio_language(
+        self, audio: bytes, mime_type: str, request_timeout_seconds: float
+    ) -> SpokenLanguage:
+        """Classify audio independently when mixed-mode transcription is suspicious."""
+        response = await asyncio.wait_for(
+            self.client.aio.models.generate_content(
+                model=self.settings.gemini_text_model,
+                contents=[
+                    types.Part.from_bytes(data=audio, mime_type=mime_type),
+                    types.Part.from_text(
+                        text=(
+                            "Identify the primary spoken language in this audio. "
+                            "Distinguish Sinhala speech from Tamil speech and English speech "
+                            "by listening to the audio, not by guessing from a transcript. "
+                            "Return only JSON with language set to exactly one of Sinhala, "
+                            "Tamil, English, or Unknown."
+                        )
+                    ),
+                ],
+                config=types.GenerateContentConfig(
+                    temperature=0.0,
+                    response_mime_type="application/json",
+                    response_json_schema={
+                        "type": "object",
+                        "properties": {
+                            "language": {
+                                "type": "string",
+                                "enum": [item.value for item in SpokenLanguage],
+                            }
+                        },
+                        "required": ["language"],
+                    },
+                ),
+            ),
+            timeout=request_timeout_seconds,
+        )
+        parsed = getattr(response, "parsed", None)
+        if isinstance(parsed, dict):
+            value = parsed.get("language")
+        else:
+            value = _load_response_json(response.text or "{}").get("language")
+        try:
+            return SpokenLanguage(value)
+        except ValueError:
+            return SpokenLanguage.unknown
+
     async def transcribe_file(
         self,
         audio: bytes,
@@ -158,6 +204,7 @@ class GeminiService:
         audio_duration_seconds: float | None = None,
         request_timeout_seconds: float | None = None,
         translate_to: Language | None = None,
+        _retry_language: bool = True,
     ) -> list[TranscriptSegment]:
         speaker_guidance = (
             "Assign stable anonymous labels SPEAKER_00, SPEAKER_01, and so on to "
@@ -261,6 +308,36 @@ class GeminiService:
         )
         normalized = normalize_language_segments(normalized, language)
         normalized = bound_segments_to_duration(normalized, audio_duration_seconds)
+        if (
+            language == Language.mixed
+            and _retry_language
+            and normalized
+            and not any(
+                item.detected_language in (SpokenLanguage.sinhala, SpokenLanguage.tamil)
+                for item in normalized
+            )
+        ):
+            detected = await self._detect_audio_language(
+                audio, mime_type, timeout_seconds
+            )
+            if detected in (SpokenLanguage.sinhala, SpokenLanguage.tamil):
+                retry_language = (
+                    Language.sinhala
+                    if detected == SpokenLanguage.sinhala
+                    else Language.tamil
+                )
+                return await self.transcribe_file(
+                    audio,
+                    mime_type,
+                    retry_language,
+                    model=selected_model,
+                    timestamp_offset=timestamp_offset,
+                    include_speakers=include_speakers,
+                    audio_duration_seconds=audio_duration_seconds,
+                    request_timeout_seconds=request_timeout_seconds,
+                    translate_to=translate_to,
+                    _retry_language=False,
+                )
         if timestamp_offset:
             normalized = [
                 item.model_copy(

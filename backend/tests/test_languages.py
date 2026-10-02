@@ -31,6 +31,18 @@ def test_settings_cannot_change_translation_target() -> None:
     assert Settings(target_language=Language.english).target_language == Language.tamil
 
 
+def test_native_script_segments_are_not_reclassified_as_english() -> None:
+    result = normalize_language_segments(
+        [segment("எனவே, இருக்கிறது"), segment("සිංහල වාක්‍යයක්")],
+        Language.mixed,
+    )
+
+    assert [item.detected_language for item in result] == [
+        SpokenLanguage.tamil,
+        SpokenLanguage.sinhala,
+    ]
+
+
 def test_monolingual_mode_filters_other_scripts() -> None:
     result = normalize_language_segments(
         [segment("தமிழ்"), segment("සිංහල")],
