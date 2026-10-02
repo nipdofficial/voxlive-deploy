@@ -429,7 +429,11 @@ class GeminiService:
             try:
                 response = await asyncio.wait_for(
                     self.client.aio.models.generate_content(
-                        model=self.settings.gemini_text_model,
+                        model=getattr(
+                            self.settings,
+                            "gemini_text_model",
+                            self.settings.gemini_batch_model,
+                        ),
                         contents=[types.Part.from_text(text=prompt)],
                         config=types.GenerateContentConfig(
                             temperature=0.1,

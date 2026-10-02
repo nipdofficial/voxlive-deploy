@@ -508,7 +508,7 @@ function TranscriptPanel({
 }
 
 export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
-  const [fontsLoaded] = useFonts({
+  useFonts({
     DMSans_400Regular,
     DMSans_500Medium,
     DMSans_600SemiBold,
@@ -1074,7 +1074,8 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
     });
   }, [history, historyLanguage, historySearch]);
 
-  if (!fontsLoaded) return <View style={styles.loading}><ActivityIndicator color="#9F7AEA" /></View>;
+  // Keep the existing UI usable when a remote font asset is unavailable.
+  // React Native will fall back to the platform font until it loads.
 
   return (
     <View style={styles.appShell}>

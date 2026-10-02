@@ -154,7 +154,8 @@ async def _finalize_live(record: TranscriptRecord, path: Path) -> None:
                 audio = await asyncio.to_thread(path.read_bytes)
                 inline_limit = settings.max_upload_mb * 1024 * 1024
                 energy = wav_rms(audio)
-                if energy is not None and energy < settings.live_silence_rms_threshold:
+                silence_threshold = getattr(settings, "live_silence_rms_threshold", 0.0)
+                if energy is not None and energy < silence_threshold:
                     record.segments = []
                 elif len(audio) <= inline_limit:
                     record.segments = await GeminiService().transcribe_file(
@@ -165,7 +166,7 @@ async def _finalize_live(record: TranscriptRecord, path: Path) -> None:
                         include_speakers=record.diarization,
                         audio_duration_seconds=record.duration_seconds,
                     )
-                    if settings.auto_translate and record.segments and any(
+                    if getattr(settings, "auto_translate", False) and record.segments and any(
                         not item.translated_text for item in record.segments
                     ):
                         final_gemini = GeminiService()

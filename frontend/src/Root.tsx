@@ -20,7 +20,9 @@ const HEARTBEAT_MS = 60_000;
 
 /** Routes between sign-in, the admin dashboard and the transcription app by role. */
 export default function Root() {
-  const [fontsLoaded] = useFonts({ DMSans_400Regular, DMSans_500Medium, DMSans_600SemiBold, DMSans_700Bold });
+  // Font loading is enhancement-only. A blocked font request must not prevent
+  // the authentication screen and the rest of the app from rendering.
+  useFonts({ DMSans_400Regular, DMSans_500Medium, DMSans_600SemiBold, DMSans_700Bold });
   const systemScheme = useColorScheme();
   const [isDark, setIsDark] = useState(systemScheme !== "light");
   const [session, setSession] = useState<AuthSession | null>(() => loadSession());
@@ -72,7 +74,7 @@ export default function Root() {
     };
   }, [session, handleSessionExpired]);
 
-  if (!fontsLoaded || (session && verifying)) {
+  if (session && verifying) {
     return (
       <View style={{ flex: 1, backgroundColor: authPalette(isDark).bg, alignItems: "center", justifyContent: "center" }}>
         <ActivityIndicator color="#9F7AEA" />
