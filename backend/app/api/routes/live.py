@@ -54,6 +54,23 @@ def _is_committed_segment(segment: TranscriptSegment, commit_after: float) -> bo
     return (segment.start + segment.end) / 2 >= commit_after
 
 
+def _same_preview_segment(left: TranscriptSegment, right: TranscriptSegment) -> bool:
+    """Detect a repeated phrase returned by two overlapping preview chunks."""
+    if " ".join(left.text.casefold().split()) != " ".join(right.text.casefold().split()):
+        return False
+    overlap = min(left.end, right.end) - max(left.start, right.start)
+    return overlap >= -0.15
+
+
+def _append_preview_segment(
+    record: TranscriptRecord, segment: TranscriptSegment
+) -> bool:
+    if any(_same_preview_segment(saved, segment) for saved in record.segments):
+        return False
+    record.segments.append(segment)
+    return True
+
+
 def _can_finalize_from_full_audio(pcm_size: int) -> bool:
     """Return whether the final pass can safely replace unfinished previews."""
     settings = get_settings()
@@ -279,23 +296,26 @@ async def live_transcription(websocket: WebSocket) -> None:
                     for segment in segments
                     if _is_committed_segment(segment, commit_after)
                 ]
+                new_committed: list[TranscriptSegment] = []
                 for segment in committed:
-                    record.segments.append(segment)
+                    if not _append_preview_segment(record, segment):
+                        continue
+                    new_committed.append(segment)
                     await websocket.send_json(
                         {"type": "transcript", "segment": segment.model_dump()}
                     )
 
-                if settings.auto_translate and committed and any(
-                    not item.translated_text for item in committed
+                if settings.auto_translate and new_committed and any(
+                    not item.translated_text for item in new_committed
                 ):
                     try:
                         translations = await gemini.translate_segments(
-                            committed, settings.target_language
+                            new_committed, settings.target_language
                         )
                     except Exception as exc:
                         logger.warning("Live translation skipped: %s", exc)
                         continue
-                    for segment, translated in zip(committed, translations, strict=True):
+                    for segment, translated in zip(new_committed, translations, strict=True):
                         for index, saved in enumerate(record.segments):
                             if (
                                 saved.start == segment.start

@@ -58,6 +58,24 @@ def test_overlap_commits_each_segment_once_by_midpoint() -> None:
     assert live._is_committed_segment(boundary_word, 8.0) is True
 
 
+def test_preview_deduplication_ignores_repeated_overlap_result() -> None:
+    record = TranscriptRecord(
+        title="Live test",
+        language=Language.mixed,
+        session_type=SessionType.live,
+        segments=[TranscriptSegment(start=1.0, end=1.8, text="same phrase")],
+    )
+
+    assert live._append_preview_segment(
+        record,
+        TranscriptSegment(start=1.05, end=1.85, text="same phrase"),
+    ) is False
+    assert live._append_preview_segment(
+        record,
+        TranscriptSegment(start=2.0, end=2.8, text="different phrase"),
+    ) is True
+
+
 def test_preview_queue_can_be_skipped_when_full_audio_will_replace_it(
     monkeypatch,
 ) -> None:

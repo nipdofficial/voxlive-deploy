@@ -54,6 +54,16 @@ export async function startWebAudioStream(
   try {
     context = new AudioContextConstructor({ sampleRate: TARGET_SAMPLE_RATE });
     const source = context.createMediaStreamSource(mediaStream);
+    const highPass = context.createBiquadFilter();
+    highPass.type = "highpass";
+    highPass.frequency.value = 80;
+    highPass.Q.value = 0.7;
+    const compressor = context.createDynamicsCompressor();
+    compressor.threshold.value = -50;
+    compressor.knee.value = 24;
+    compressor.ratio.value = 4;
+    compressor.attack.value = 0.003;
+    compressor.release.value = 0.25;
     const silentOutput = context.createGain();
     silentOutput.gain.value = 0;
 
@@ -90,22 +100,30 @@ export async function startWebAudioStream(
         outputChannelCount: [1],
       });
       worklet.port.onmessage = (event: MessageEvent<Float32Array>) => emit(event.data, context!.sampleRate);
-      source.connect(worklet);
+      source.connect(highPass);
+      highPass.connect(compressor);
+      compressor.connect(worklet);
       worklet.connect(silentOutput);
       disconnectProcessor = () => {
         worklet.port.onmessage = null;
-        source.disconnect(worklet);
+        source.disconnect(highPass);
+        highPass.disconnect(compressor);
+        compressor.disconnect(worklet);
         worklet.disconnect();
       };
     } else {
       // Compatibility fallback for older embedded browsers.
       const legacy = context.createScriptProcessor(4096, 1, 1);
       legacy.onaudioprocess = (event) => emit(event.inputBuffer.getChannelData(0), event.inputBuffer.sampleRate);
-      source.connect(legacy);
+      source.connect(highPass);
+      highPass.connect(compressor);
+      compressor.connect(legacy);
       legacy.connect(silentOutput);
       disconnectProcessor = () => {
         legacy.onaudioprocess = null;
-        source.disconnect(legacy);
+        source.disconnect(highPass);
+        highPass.disconnect(compressor);
+        compressor.disconnect(legacy);
         legacy.disconnect();
       };
     }
