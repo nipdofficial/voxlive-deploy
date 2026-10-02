@@ -59,6 +59,7 @@ def test_prompts_explicitly_separate_single_and_mixed_modes() -> None:
     assert "speech only" in LANGUAGE_GUIDANCE[Language.tamil]
     assert "speech only" in LANGUAGE_GUIDANCE[Language.english]
     assert "Transcribe all three" in LANGUAGE_GUIDANCE[Language.mixed]
+    assert "transliteration" in LANGUAGE_GUIDANCE[Language.mixed]
 
 
 def test_segments_cannot_extend_beyond_real_audio() -> None:

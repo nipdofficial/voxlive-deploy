@@ -33,10 +33,12 @@ LANGUAGE_GUIDANCE = {
     ),
     Language.mixed: (
         "The audio may switch between Sinhala, Tamil, and English. Transcribe all three, "
-        "preserve each in its native script, and never translate. For every utterance set "
+        "first identify the language actually spoken in each utterance from the audio, "
+        "then preserve each in its native script and never translate. For every utterance set "
         "detected_language to Sinhala, Tamil, English, or Unknown. Split an utterance when "
         "the spoken language changes. English speech must remain in Latin script; do not "
-        "write English words using Sinhala or Tamil characters. Sinhala speech must remain "
+        "write Sinhala or Tamil speech as English transliteration or phonetic Latin text. "
+        "Sinhala speech must remain "
         "in Sinhala script (Unicode block U+0D80-U+0DFF), and Tamil speech must remain in "
         "Tamil script (U+0B80-U+0BFF). Sinhala and Tamil are visually similar to Kannada, "
         "Malayalam, and Devanagari, but are distinct scripts — never substitute Sinhala "
@@ -185,6 +187,14 @@ class GeminiService:
             )
         timeout_seconds = request_timeout_seconds or self.settings.gemini_batch_timeout_seconds
         selected_model = model or self.settings.gemini_batch_model
+        # The specialised transcribe models can return Latin transliterations
+        # for short Sinhala/Tamil clips when mixed-language detection is
+        # requested. Use the multimodal structured model for mixed mode so it
+        # must classify each utterance from the audio and return native-script
+        # text plus its detected language. Keep the specialised model for
+        # explicit single-language modes and their lower-latency live previews.
+        if language == Language.mixed and _is_transcription_model(selected_model):
+            selected_model = self.settings.gemini_text_model
         transcribe_model = _is_transcription_model(selected_model)
         if transcribe_model:
             prompt += (
