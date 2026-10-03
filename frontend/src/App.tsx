@@ -343,6 +343,7 @@ function TranscriptPanel({
   processingStage,
   duration,
   intensity = 0,
+  interimText,
   exportRecord,
   copied,
   exportBusy,
@@ -363,6 +364,7 @@ function TranscriptPanel({
   processingStage?: ProcessingStage | null;
   duration: number;
   intensity?: number;
+  interimText?: string;
   exportRecord?: TranscriptRecord | null;
   copied?: boolean;
   exportBusy?: "transcript" | "summary" | null;
@@ -448,7 +450,7 @@ function TranscriptPanel({
         {exportRecord?.status === "completed" && transcriptText(exportRecord) ? (
           <SummaryPanel record={exportRecord} summarizing={Boolean(summarizing)} copied={Boolean(summaryCopied)} exportBusy={exportBusy === "summary"} onGenerate={onGenerateSummary} onCopy={onCopySummary} onSave={onSaveSummary} styles={styles} />
         ) : null}
-        {segments.length === 0 ? (
+        {segments.length === 0 && !interimText ? (
           <View style={styles.emptyTranscript}>
             <View style={styles.emptyIcon}><MaterialCommunityIcons name={isProcessing ? "text-box-outline" : active ? "microphone-outline" : "waveform"} size={26} color="#8F8A9E" /></View>
             <Text style={styles.emptyTitle}>{isProcessing ? "Transcript on the way" : active && status === "recording" ? "Recording in progress" : active ? "Listening for speech" : "Ready when you are"}</Text>
@@ -507,6 +509,15 @@ function TranscriptPanel({
             </View>
           </Pressable>
         ))}
+        {interimText ? (
+          <View style={[styles.segmentRow, { opacity: 0.72 }]}>
+            <Text style={styles.segmentTime}>…</Text>
+            <View style={[styles.speakerLine, { backgroundColor: "#9F7AEA" }]} />
+            <View style={styles.segmentBody}>
+              <Text style={styles.segmentText}>{interimText}</Text>
+            </View>
+          </View>
+        ) : null}
       </ScrollView>
     </View>
   );
@@ -535,6 +546,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
   const [duration, setDuration] = useState(0);
   const [voiceIntensity, setVoiceIntensity] = useState(0);
   const [segments, setSegments] = useState<Segment[]>([]);
+  const [interimText, setInterimText] = useState("");
   const [history, setHistory] = useState<TranscriptRecord[]>([]);
   const [selected, setSelected] = useState<TranscriptRecord | null>(null);
   const [deleteCandidate, setDeleteCandidate] = useState<TranscriptRecord | null>(null);
@@ -845,6 +857,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
     setCurrentRecordId(null);
     setProcessingStage(null);
     setSegments([]);
+    setInterimText("");
     setDuration(0);
     setVoiceIntensity(0);
     setStatus("connecting");
@@ -888,7 +901,10 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
             setBusy(false);
           } else if (message.type === "transcript") {
             setStatus("listening");
+            setInterimText("");
             setSegments((current) => sortSegments([...current, message.segment]));
+          } else if (message.type === "interim") {
+            setInterimText(String(message.text ?? ""));
           } else if (message.type === "translation") {
             setSegments((current) => current.map((segment) => (
               segment.start === message.segment.start
@@ -985,6 +1001,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
     setCurrentRecordId(null);
     setProcessingStage(null);
     setSegments([]);
+    setInterimText("");
     setDuration(0);
       const connection = join
       ? await joinMeeting(meetingCode, displayName, diarization)
@@ -1024,6 +1041,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
     setBusy(true);
     setCurrentRecordId(null);
     setSegments([]);
+    setInterimText("");
     setProcessingStage(null);
     setStatus("uploading");
     try {
@@ -1293,7 +1311,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
               <View style={styles.privacyRow}><Feather name="shield" size={13} color="#716C7F" /><Text style={styles.privacyText}>Your audio is encrypted in transit and never used to train public models.</Text></View>
             </View>
 
-            <TranscriptPanel segments={segments} active={active} status={status} processingStage={processingStage} duration={shownDuration} intensity={voiceIntensity} exportRecord={currentExportRecord} copied={copiedRecordId === currentRecordId} exportBusy={exporting?.id === currentRecordId ? exporting.kind : null} onCopy={(record) => void copyTranscript(record)} onSaveTranscript={(record) => void saveTranscript(record)} summarizing={summarizingRecordId === currentRecordId} summaryCopied={copiedSummaryRecordId === currentRecordId} onGenerateSummary={(record) => void generateSummary(record)} onCopySummary={(summary) => { if (currentRecordId) void copySummary(currentRecordId, summary); }} onSaveSummary={(record) => void saveSummary(record)} onUpdateRecord={(record, next) => void editTranscriptSegments(record, next)} onRenameSpeaker={(record, oldName, newName) => void renameSpeaker(record, oldName, newName)} onTranslate={(record, target) => void translateRecord(record, target)} translating={translatingRecordId === currentRecordId} styles={styles} />
+            <TranscriptPanel segments={segments} interimText={interimText} active={active} status={status} processingStage={processingStage} duration={shownDuration} intensity={voiceIntensity} exportRecord={currentExportRecord} copied={copiedRecordId === currentRecordId} exportBusy={exporting?.id === currentRecordId ? exporting.kind : null} onCopy={(record) => void copyTranscript(record)} onSaveTranscript={(record) => void saveTranscript(record)} summarizing={summarizingRecordId === currentRecordId} summaryCopied={copiedSummaryRecordId === currentRecordId} onGenerateSummary={(record) => void generateSummary(record)} onCopySummary={(summary) => { if (currentRecordId) void copySummary(currentRecordId, summary); }} onSaveSummary={(record) => void saveSummary(record)} onUpdateRecord={(record, next) => void editTranscriptSegments(record, next)} onRenameSpeaker={(record, oldName, newName) => void renameSpeaker(record, oldName, newName)} onTranslate={(record, target) => void translateRecord(record, target)} translating={translatingRecordId === currentRecordId} styles={styles} />
           </View>
         </ScrollView>
       )}

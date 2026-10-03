@@ -6,6 +6,7 @@ from contextlib import suppress
 from pathlib import Path
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from google.genai import types
 
 from app.api.routes.history import save_record
 from app.core.config import get_settings
@@ -14,6 +15,7 @@ from app.models.schemas import (
     LiveStart,
     ProcessingStage,
     SessionType,
+    SpokenLanguage,
     TranscriptRecord,
     TranscriptSegment,
 )
@@ -34,6 +36,49 @@ def _pcm_wav_bytes(pcm: bytes, sample_rate: int) -> bytes:
         wav.setframerate(sample_rate)
         wav.writeframes(pcm)
     return output.getvalue()
+
+
+def _live_language(value: str | None) -> SpokenLanguage | None:
+    if not value:
+        return None
+    normalized = value.casefold()
+    if normalized.startswith("si"):
+        return SpokenLanguage.sinhala
+    if normalized.startswith("ta"):
+        return SpokenLanguage.tamil
+    if normalized.startswith("en"):
+        return SpokenLanguage.english
+    return SpokenLanguage.unknown
+
+
+def _seconds(value: str | None) -> float | None:
+    if not value:
+        return None
+    try:
+        return float(value.removesuffix("s"))
+    except ValueError:
+        return None
+
+
+def _live_segment(
+    transcription: types.Transcription,
+    fallback_start: float,
+) -> TranscriptSegment | None:
+    text = (transcription.text or "").strip()
+    if not text:
+        return None
+    words = transcription.words or []
+    start = _seconds(words[0].start_offset) if words else None
+    end = _seconds(words[-1].end_offset) if words else None
+    start = fallback_start if start is None else max(fallback_start, start)
+    end = max(start + 0.05, end or start + max(0.25, len(text) * 0.06))
+    return TranscriptSegment(
+        start=start,
+        end=end,
+        text=text,
+        speaker=transcription.speaker_label,
+        detected_language=_live_language(transcription.language_code),
+    )
 
 
 def _write_pcm_wav(path: Path, pcm: bytes, sample_rate: int) -> None:
@@ -237,6 +282,8 @@ async def live_transcription(websocket: WebSocket) -> None:
     raw_file = None
     stopped = False
     workers: list[asyncio.Task[None]] = []
+    live_connect = None
+    live_entered = False
     try:
         start = LiveStart.model_validate(await websocket.receive_json())
         record = TranscriptRecord(
@@ -256,38 +303,45 @@ async def live_transcription(websocket: WebSocket) -> None:
 
         settings = get_settings()
         gemini = GeminiService()
+        live_connect = gemini.client.aio.live.connect(
+            model=settings.gemini_live_model,
+            config=types.LiveConnectConfig(
+                response_modalities=["TEXT"],
+                input_audio_transcription=types.AudioTranscriptionConfig(
+                    language_codes=[],
+                    mode="VERBATIM",
+                ),
+            ),
+        )
+        live_session = await live_connect.__aenter__()
+        live_entered = True
+        queue: asyncio.Queue[bytes | None] = asyncio.Queue(
+            maxsize=max(4, getattr(settings, "live_preview_queue_size", 50))
+        )
         chunk_bytes = max(
-            start.sample_rate * 2,
-            int(settings.live_chunk_seconds * start.sample_rate * 2),
+            2,
+            int(settings.live_stream_chunk_ms * start.sample_rate * 2 / 1000),
         )
-        queue: asyncio.Queue[tuple[bytes, float, float] | None] = asyncio.Queue(
-            maxsize=max(2, getattr(settings, "live_preview_queue_size", 4))
-        )
+        last_final_end = 0.0
 
-        async def transcribe_chunks() -> None:
+        async def send_live_audio() -> None:
             warning_sent = False
             while True:
-                queued = await queue.get()
-                if queued is None:
+                chunk = await queue.get()
+                if chunk is None:
+                    await live_session.send_realtime_input(audio_stream_end=True)
                     return
-                chunk, offset, commit_after = queued
-                if _pcm_rms(chunk) < settings.live_silence_rms_threshold:
-                    continue
                 try:
-                    segments = await _transcribe_live_chunk(
-                        gemini,
-                        chunk,
-                        start.sample_rate,
-                        record,
-                        offset,
+                    await live_session.send_realtime_input(
+                        audio=types.Blob(
+                            data=chunk,
+                            mime_type=f"audio/pcm;rate={start.sample_rate}",
+                        )
                     )
                 except asyncio.CancelledError:
                     return
                 except Exception as exc:
-                    # A transient Gemini/quota failure must not terminate the
-                    # microphone WebSocket. The final full-audio pass can fill
-                    # any preview gap after the user stops the session.
-                    logger.exception("Live chunk transcription skipped")
+                    logger.exception("Gemini Live audio send failed")
                     record.error = f"Live preview delayed: {exc}"
                     await save_record(record)
                     if not warning_sent:
@@ -298,82 +352,68 @@ async def live_transcription(websocket: WebSocket) -> None:
                             }
                         )
                         warning_sent = True
-                    continue
-                committed = [
-                    segment
-                    for segment in segments
-                    if _is_committed_segment(segment, commit_after)
-                ]
-                new_committed: list[TranscriptSegment] = []
-                for segment in committed:
-                    if not _append_preview_segment(record, segment):
-                        continue
-                    new_committed.append(segment)
-                    await websocket.send_json(
-                        {"type": "transcript", "segment": segment.model_dump()}
-                    )
+                    raise
 
-                if settings.auto_translate and new_committed and any(
-                    not item.translated_text for item in new_committed
-                ):
-                    try:
-                        translations = await gemini.translate_segments(
-                            new_committed, settings.target_language
+        async def receive_live_transcripts() -> None:
+            nonlocal last_final_end
+            try:
+                while True:
+                    async for response in live_session.receive():
+                        content = response.server_content
+                        if content is None:
+                            continue
+                        interim = content.interim_input_transcription
+                        if interim and interim.text:
+                            await websocket.send_json(
+                                {
+                                    "type": "interim",
+                                    "text": interim.text,
+                                    "detected_language": _live_language(
+                                        interim.language_code
+                                    ),
+                                }
+                            )
+                        final = content.input_transcription
+                        if final is None:
+                            continue
+                        segment = _live_segment(final, last_final_end)
+                        if segment is None:
+                            continue
+                        last_final_end = segment.end
+                        if not _append_preview_segment(record, segment):
+                            continue
+                        await websocket.send_json(
+                            {"type": "transcript", "segment": segment.model_dump()}
                         )
-                    except Exception as exc:
-                        logger.warning("Live translation skipped: %s", exc)
-                        continue
-                    for segment, translated in zip(new_committed, translations, strict=True):
-                        for index, saved in enumerate(record.segments):
-                            if (
-                                saved.start == segment.start
-                                and saved.end == segment.end
-                                and saved.text == segment.text
-                            ):
-                                translated_segment = saved.model_copy(
-                                    update={"translated_text": translated}
-                                )
-                                record.segments[index] = translated_segment
-                                await websocket.send_json(
-                                    {
-                                        "type": "translation",
-                                        "segment": translated_segment.model_dump(),
-                                    }
-                                )
-                                break
+            except asyncio.CancelledError:
+                return
 
-        workers = [
-            asyncio.create_task(transcribe_chunks())
-            for _ in range(2)
-        ]
+        sender_task = asyncio.create_task(send_live_audio())
+        receiver_task = asyncio.create_task(receive_live_transcripts())
+        workers = [sender_task, receiver_task]
         workers_gather = asyncio.gather(*workers, return_exceptions=True)
-        queued_bytes = 0
-        overlap_bytes = min(
-            chunk_bytes // 2,
-            int(settings.live_chunk_overlap_seconds * start.sample_rate * 2),
-        )
-        advance_bytes = chunk_bytes - overlap_bytes
-        first_chunk = True
-        max_pcm_bytes = int(settings.max_live_minutes * 60 * start.sample_rate * 2)
+        # Gemini Live sessions are currently limited to ten minutes. Keep the
+        # application setting configurable, but never advertise a longer live
+        # session than the provider can maintain.
+        live_max_minutes = min(settings.max_live_minutes, 10.0)
+        max_pcm_bytes = int(live_max_minutes * 60 * start.sample_rate * 2)
         while True:
             message = await websocket.receive()
             if message.get("bytes") is not None:
                 chunk = message["bytes"]
                 if pcm_size + len(chunk) > max_pcm_bytes:
                     raise ValueError(
-                        f"Live session exceeds the {settings.max_live_minutes:g} minute limit"
+                        f"Live session exceeds the {live_max_minutes:g} minute limit"
                     )
                 raw_file.write(chunk)
                 pcm_size += len(chunk)
                 pending.extend(chunk)
                 while len(pending) >= chunk_bytes:
                     live_chunk = bytes(pending[:chunk_bytes])
-                    offset = queued_bytes / (start.sample_rate * 2)
-                    commit_after = 0.0 if first_chunk else offset + settings.live_chunk_overlap_seconds
-                    _enqueue_latest_preview(queue, (live_chunk, offset, commit_after))
-                    del pending[:advance_bytes]
-                    queued_bytes += advance_bytes
-                    first_chunk = False
+                    if queue.full():
+                        queue.get_nowait()
+                    queue.put_nowait(live_chunk)
+                    del pending[:chunk_bytes]
             elif message.get("text") == "stop":
                 stopped = True
                 if _can_finalize_from_full_audio(pcm_size):
@@ -383,8 +423,7 @@ async def live_transcription(websocket: WebSocket) -> None:
                     pending.clear()
                     while not queue.empty():
                         queue.get_nowait()
-                    for _ in workers:
-                        await queue.put(None)
+                    await queue.put(None)
                     try:
                         await asyncio.wait_for(
                             asyncio.shield(workers_gather),
@@ -398,15 +437,15 @@ async def live_transcription(websocket: WebSocket) -> None:
                     # Preserve the old drain behavior when the full pass is
                     # disabled or the recording is too large for inline input.
                     if pending:
-                        offset = queued_bytes / (start.sample_rate * 2)
-                        commit_after = 0.0 if first_chunk else offset + settings.live_chunk_overlap_seconds
-                        await queue.put((bytes(pending), offset, commit_after))
-                        queued_bytes += len(pending)
+                        await queue.put(bytes(pending))
                         pending.clear()
-                    for _ in workers:
-                        await queue.put(None)
+                    await queue.put(None)
                     await workers_gather
                 break
+
+        await live_connect.__aexit__(None, None, None)
+        live_connect = None
+        live_entered = False
 
         path = settings.data_dir / "audio" / record.audio_filename
         record.processing_stage = ProcessingStage.saving_audio
@@ -445,6 +484,8 @@ async def live_transcription(websocket: WebSocket) -> None:
                 task.cancel()
         if workers:
             await asyncio.gather(*workers, return_exceptions=True)
+        if live_connect is not None and live_entered:
+            await live_connect.__aexit__(None, None, None)
         if record and not stopped and record.status == JobStatus.processing:
             record.status = JobStatus.failed
             record.processing_stage = None
