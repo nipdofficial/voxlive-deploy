@@ -539,7 +539,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
   const styles = useMemo(() => createStyles(isDark, width), [isDark, width]);
   const isWide = width >= 900;
   const [tab, setTab] = useState<"new" | "history" | "sessions">("new");
-  const [language] = useState<Language>("Mixed");
+  const [language, setLanguage] = useState<Language>("Mixed");
   const [sessionType, setSessionType] = useState<SessionType>("Live");
   const [diarization] = useState(false);
   const [hoveredSidebarItem, setHoveredSidebarItem] = useState<SessionType | null>(null);
@@ -1015,7 +1015,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
     setDuration(0);
       const connection = join
       ? await joinMeeting(meetingCode, displayName, diarization)
-      : await createMeeting(displayName, "Mixed", diarization);
+      : await createMeeting(displayName, language, diarization);
     try {
       await connectToMeeting(connection, join ? undefined : "Online meeting");
     } catch (error) {
@@ -1320,14 +1320,17 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
           <View style={[styles.workspace, isWide && styles.workspaceWide]}>
             <View style={styles.controlsColumn}>
               <View style={styles.controlSection}>
-                <SectionTitle number="01" title="Automatic language detection" styles={styles} />
+                <SectionTitle number="01" title="Input language" styles={styles} />
                 <View style={styles.autoLanguageCard}>
                   <View style={styles.autoLanguageIcon}><Feather name="globe" size={19} color="#755BD0" /></View>
                   <View style={styles.autoLanguageBody}>
-                    <Text style={styles.autoLanguageTitle}>Sinhala, Tamil and English</Text>
-                    <Text style={styles.autoLanguageHint}>Detected automatically. Your translation is always prepared in Tamil.</Text>
+                    <Text style={styles.autoLanguageTitle}>{language === "Mixed" ? "Automatic detection" : language}</Text>
+                    <Text style={styles.autoLanguageHint}>{language === "Mixed" ? "Gemini will detect Sinhala, Tamil and English." : `Gemini will transcribe ${language} directly for better accuracy.`}</Text>
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 7, marginTop: 10 }}>
+                      {(["Sinhala", "Tamil", "English", "Mixed"] as Language[]).map((option) => <Pressable key={option} disabled={active || busy} onPress={() => setLanguage(option)} style={{ paddingHorizontal: 9, paddingVertical: 6, borderRadius: 9, borderWidth: 1, borderColor: language === option ? "#8067CE" : "rgba(255,255,255,0.12)", backgroundColor: language === option ? "#755BD0" : "rgba(255,255,255,0.05)" }}><Text style={{ color: language === option ? "white" : "#B8B1C8", fontSize: 10, fontWeight: "600" }}>{option}</Text></Pressable>)}
+                    </View>
                   </View>
-                  <View style={styles.autoLanguageBadge}><Text style={styles.autoLanguageBadgeText}>AUTO</Text></View>
+                  <View style={styles.autoLanguageBadge}><Text style={styles.autoLanguageBadgeText}>{language === "Mixed" ? "AUTO" : "SET"}</Text></View>
                 </View>
               </View>
 

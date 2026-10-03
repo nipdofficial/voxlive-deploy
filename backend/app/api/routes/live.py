@@ -304,12 +304,17 @@ async def live_transcription(websocket: WebSocket) -> None:
 
         settings = get_settings()
         gemini = GeminiService()
+        live_language_codes = {
+            "Sinhala": ["si"],
+            "Tamil": ["ta"],
+            "English": ["en"],
+        }.get(start.language.value, [])
         live_connect = gemini.client.aio.live.connect(
             model=settings.gemini_live_model,
             config=types.LiveConnectConfig(
                 response_modalities=["TEXT"],
                 input_audio_transcription=types.AudioTranscriptionConfig(
-                    language_codes=[],
+                    language_codes=live_language_codes,
                     mode="VERBATIM",
                 ),
             ),
