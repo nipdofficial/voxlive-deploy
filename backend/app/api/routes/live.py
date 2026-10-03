@@ -304,6 +304,11 @@ async def live_transcription(websocket: WebSocket) -> None:
 
         settings = get_settings()
         gemini = GeminiService()
+        # Only the Live mode may translate line by line. Enforce this on the
+        # backend so older clients cannot accidentally enable it for Record.
+        realtime_translation = (
+            start.session_type == SessionType.live and start.realtime_translation
+        )
         live_language_codes = {
             "Sinhala": ["si"],
             "Tamil": ["ta"],
@@ -334,7 +339,7 @@ async def live_transcription(websocket: WebSocket) -> None:
             """Add Tamil to one committed line without blocking live captions."""
             current_task = asyncio.current_task()
             try:
-                if not settings.auto_translate or not start.realtime_translation:
+                if not settings.auto_translate or not realtime_translation:
                     return
                 translations = await GeminiService().translate_segments(
                     [segment], settings.target_language
@@ -429,7 +434,7 @@ async def live_transcription(websocket: WebSocket) -> None:
                         await websocket.send_json(
                             {"type": "transcript", "segment": segment.model_dump()}
                         )
-                        if settings.auto_translate and start.realtime_translation:
+                        if settings.auto_translate and realtime_translation:
                             translation_task = asyncio.create_task(
                                 translate_live_segment(segment)
                             )
