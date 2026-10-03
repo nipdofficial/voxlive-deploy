@@ -130,22 +130,35 @@ class MeetingSession:
         host_secret: str,
         record: TranscriptRecord,
         language: Language,
+        title: str = "Online meeting",
+        max_participants: int = 0,
     ) -> None:
         self.code = code
         self.room_name = f"helascribe-{code.lower()}"
         self.host_secret = host_secret
         self.record = record
         self.language = language
+        self.title = title
+        self.max_participants = max_participants
         self.started_at = time.monotonic()
+        self.created_at = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
         self.states: dict[str, TrackState] = {}
         self.room: Any = None
         self.stop_event = asyncio.Event()
         self.task: asyncio.Task[None] | None = None
         self.ending = False
 
+    @property
+    def participant_count(self) -> int:
+        return len(self.record.participants)
+
     def add_participant(
         self, identity: str, display_name: str, shared_mic: bool
     ) -> MeetingParticipant:
+        if self.max_participants > 0 and self.participant_count >= self.max_participants:
+            raise ValueError(
+                f"Session is full ({self.max_participants} participants maximum)"
+            )
         participant = MeetingParticipant(
             identity=identity,
             display_name=display_name,
@@ -487,17 +500,30 @@ class MeetingRegistry:
         self.sessions: dict[str, MeetingSession] = {}
         self.lock = asyncio.Lock()
 
-    async def create(self, record: TranscriptRecord, language: Language) -> MeetingSession:
+    async def create(
+        self,
+        record: TranscriptRecord,
+        language: Language,
+        title: str = "Online meeting",
+        max_participants: int = 0,
+    ) -> MeetingSession:
         async with self.lock:
             code = generate_room_code()
             while code in self.sessions:
                 code = generate_room_code()
-            session = MeetingSession(code, secrets.token_urlsafe(32), record, language)
+            session = MeetingSession(
+                code,
+                secrets.token_urlsafe(32),
+                record,
+                language,
+                title=title,
+                max_participants=max_participants,
+            )
             self.sessions[code] = session
         await session.start()
         if session.task:
             session.task.add_done_callback(
-                lambda _task, room_code=code: self.sessions.pop(room_code, None)
+                lambda t, room_code=code: self.sessions.pop(room_code, None) if t.cancelled() or t.exception() else None
             )
         return session
 

@@ -70,3 +70,14 @@ export interface MeetingConnection {
   is_host: boolean;
   host_secret?: string | null;
 }
+
+export interface SessionInfo {
+  room_code: string;
+  meeting_id: string;
+  title: string;
+  language: Language;
+  max_participants: number;
+  participant_count: number;
+  is_active: boolean;
+  created_at: string;
+}

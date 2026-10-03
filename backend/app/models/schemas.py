@@ -130,6 +130,8 @@ class MeetingCreate(BaseModel):
     display_name: str = Field(min_length=1, max_length=80)
     language: Language
     shared_mic: bool = False
+    title: str = Field(default="Online meeting", min_length=1, max_length=200)
+    max_participants: int = Field(default=0, ge=0, description="0 = unlimited")
 
 
 class MeetingJoin(BaseModel):
@@ -146,6 +148,17 @@ class MeetingConnection(BaseModel):
     display_name: str
     is_host: bool = False
     host_secret: str | None = None
+
+
+class SessionInfo(BaseModel):
+    room_code: str
+    meeting_id: str
+    title: str
+    language: Language
+    max_participants: int
+    current_participants: int
+    is_active: bool
+    created_at: datetime
 
 
 class MeetingEnd(BaseModel):
