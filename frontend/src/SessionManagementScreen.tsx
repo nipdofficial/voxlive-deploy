@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -15,14 +15,15 @@ import { Feather } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 
 import { createMeeting, getSessionInfo, getSessionQrUrl } from "./api";
-import type { Language, SessionInfo } from "./types";
+import type { Language, MeetingConnection, SessionInfo } from "./types";
 
 interface SessionManagementScreenProps {
-  onJoinSession: (roomCode: string, displayName: string) => void;
+  onJoinSession: (roomCode: string, displayName: string, title?: string) => void;
+  onOpenCreatedSession: (connection: MeetingConnection, title: string) => void;
   isDark: boolean;
 }
 
-export function SessionManagementScreen({ onJoinSession, isDark }: SessionManagementScreenProps) {
+export function SessionManagementScreen({ onJoinSession, onOpenCreatedSession, isDark }: SessionManagementScreenProps) {
   const { width } = useWindowDimensions();
   const isWide = width >= 800;
 
@@ -40,6 +41,7 @@ export function SessionManagementScreen({ onJoinSession, isDark }: SessionManage
     code: string;
     title: string;
     qrUrl: string;
+    connection: MeetingConnection;
     info?: SessionInfo;
   } | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
@@ -49,6 +51,15 @@ export function SessionManagementScreen({ onJoinSession, isDark }: SessionManage
   const [participantName, setParticipantName] = useState("");
   const [joinCode, setJoinCode] = useState("");
   const [joining, setJoining] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const code = new URLSearchParams(window.location.search).get("session")?.trim().toUpperCase();
+    if (code) {
+      setMode("join");
+      setJoinCode(code);
+    }
+  }, []);
 
   const handleCreateSession = async () => {
     if (!organizerName.trim()) {
@@ -78,6 +89,7 @@ export function SessionManagementScreen({ onJoinSession, isDark }: SessionManage
         code: conn.room_code,
         title: sessionTitle.trim() || "Event Session",
         qrUrl,
+        connection: conn,
         info,
       });
     } catch (err) {
@@ -123,7 +135,7 @@ export function SessionManagementScreen({ onJoinSession, isDark }: SessionManage
       const cleanCode = joinCode.trim().toUpperCase();
       const info = await getSessionInfo(cleanCode).catch(() => null);
 
-      if (info && info.participant_count >= info.max_participants) {
+      if (info && info.current_participants >= info.max_participants) {
         Alert.alert(
           "Session Full",
           `This session has reached its limit of ${info.max_participants} participants.`,
@@ -132,7 +144,7 @@ export function SessionManagementScreen({ onJoinSession, isDark }: SessionManage
         return;
       }
 
-      onJoinSession(cleanCode, participantName.trim());
+      onJoinSession(cleanCode, participantName.trim(), info?.title);
     } catch (err) {
       Alert.alert("Join Error", err instanceof Error ? err.message : "Could not join session");
     } finally {
@@ -221,7 +233,7 @@ export function SessionManagementScreen({ onJoinSession, isDark }: SessionManage
               <View style={styles.statsContainer}>
                 <View style={styles.statBox}>
                   <Text style={styles.statNumber}>
-                    {activeSession.info.participant_count} / {activeSession.info.max_participants}
+                    {activeSession.info.current_participants} / {activeSession.info.max_participants}
                   </Text>
                   <Text style={styles.statLabel}>Participants Joined</Text>
                 </View>
@@ -236,7 +248,7 @@ export function SessionManagementScreen({ onJoinSession, isDark }: SessionManage
 
             <Pressable
               style={[styles.primaryButton, { marginTop: 24 }]}
-              onPress={() => onJoinSession(activeSession.code, organizerName || "Organizer")}
+              onPress={() => onOpenCreatedSession(activeSession.connection, activeSession.title)}
             >
               <Feather name="mic" size={18} color="white" />
               <Text style={styles.primaryButtonText}>Enter Session Room</Text>

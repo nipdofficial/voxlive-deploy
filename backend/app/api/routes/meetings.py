@@ -107,7 +107,8 @@ async def get_session_qr(code: str) -> Response:
             box_size=10,
             border=4,
         )
-        qr.add_data(code.upper())
+        app_url = get_settings().public_app_url.rstrip("/")
+        qr.add_data(f"{app_url}/?session={code.upper()}")
         qr.make(fit=True)
         img = qr.make_image(image_factory=PyPNGImage)
         buf = io.BytesIO()

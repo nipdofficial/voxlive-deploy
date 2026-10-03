@@ -77,7 +77,7 @@ export interface SessionInfo {
   title: string;
   language: Language;
   max_participants: number;
-  participant_count: number;
+  current_participants: number;
   is_active: boolean;
   created_at: string;
 }

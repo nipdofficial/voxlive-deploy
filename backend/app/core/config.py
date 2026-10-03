@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     app_reload: bool = False
     api_prefix: str = "/api"
     allowed_origins: str = "*"
+    public_app_url: str = "https://voxlive-deploy-frontend.vercel.app"
 
     vertex_service_account_json: Path = Path("service_account.json")
     gcp_project: str | None = None

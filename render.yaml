@@ -16,6 +16,8 @@ services:
         value: "3.11.9"
       - key: ALLOWED_ORIGINS
         sync: false
+      - key: PUBLIC_APP_URL
+        value: https://voxlive-deploy-frontend.vercel.app
       - key: VERTEX_SERVICE_ACCOUNT_JSON
         value: /etc/secrets/service_account.json
       - key: GCP_PROJECT
