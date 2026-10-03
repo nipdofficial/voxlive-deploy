@@ -129,8 +129,12 @@ async def _transcribe_live_chunk(
         "audio/wav",
         record.language,
         **request,
-        verify_mixed_language=False,
-        use_structured_mixed_model=False,
+        # Live sessions use Mixed mode in the client. Keep the preview path
+        # language-aware so Sinhala/Tamil audio is transcribed in its native
+        # script instead of being sent through the English-oriented plain-text
+        # transcribe model.
+        verify_mixed_language=True,
+        use_structured_mixed_model=True,
     )
 
 
