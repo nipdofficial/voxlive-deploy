@@ -67,6 +67,10 @@ function formatTime(seconds: number) {
   return `${minutes}:${rest}`;
 }
 
+function sortSegments(segments: Segment[]): Segment[] {
+  return [...segments].sort((left, right) => left.start - right.start || left.end - right.end);
+}
+
 function speakerColor(speaker?: string | null) {
   if (!speaker) return "#B9B7C6";
   const numericLabel = speaker.match(/\d+/)?.[0];
@@ -884,7 +888,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
             setBusy(false);
           } else if (message.type === "transcript") {
             setStatus("listening");
-            setSegments((current) => [...current, message.segment]);
+            setSegments((current) => sortSegments([...current, message.segment]));
           } else if (message.type === "translation") {
             setSegments((current) => current.map((segment) => (
               segment.start === message.segment.start

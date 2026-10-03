@@ -68,6 +68,7 @@ def _append_preview_segment(
     if any(_same_preview_segment(saved, segment) for saved in record.segments):
         return False
     record.segments.append(segment)
+    record.segments.sort(key=lambda item: (item.start, item.end))
     return True
 
 
@@ -132,8 +133,10 @@ async def _transcribe_live_chunk(
         # Live sessions use Mixed mode in the client. Keep the preview path
         # language-aware so Sinhala/Tamil audio is transcribed in its native
         # script instead of being sent through the English-oriented plain-text
-        # transcribe model.
-        verify_mixed_language=True,
+        # transcribe model. The structured response already classifies each
+        # utterance; defer the extra audio-only verifier to finalization so it
+        # does not add a second network round trip to every live chunk.
+        verify_mixed_language=False,
         use_structured_mixed_model=True,
     )
 
