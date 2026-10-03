@@ -99,7 +99,6 @@ async def get_session_qr(code: str) -> Response:
         raise HTTPException(status_code=404, detail="Session not found")
     try:
         import qrcode
-        from qrcode.image.pure import PyPNGImage
 
         qr = qrcode.QRCode(
             version=None,
@@ -110,7 +109,10 @@ async def get_session_qr(code: str) -> Response:
         app_url = get_settings().public_app_url.rstrip("/")
         qr.add_data(f"{app_url}/?session={code.upper()}")
         qr.make(fit=True)
-        img = qr.make_image(image_factory=PyPNGImage)
+        # qrcode[pil] is installed in the deployment. Use its Pillow image
+        # backend; PyPNGImage requires a separate pypng dependency and caused
+        # the production endpoint to return 501 with a blank QR container.
+        img = qr.make_image(fill_color="black", back_color="white")
         buf = io.BytesIO()
         img.save(buf)
         buf.seek(0)
