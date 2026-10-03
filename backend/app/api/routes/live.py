@@ -282,6 +282,7 @@ async def live_transcription(websocket: WebSocket) -> None:
     raw_file = None
     stopped = False
     workers: list[asyncio.Task[None]] = []
+    translation_tasks: set[asyncio.Task[None]] = set()
     live_connect = None
     live_entered = False
     try:
@@ -323,6 +324,44 @@ async def live_transcription(websocket: WebSocket) -> None:
             int(settings.live_stream_chunk_ms * start.sample_rate * 2 / 1000),
         )
         last_final_end = 0.0
+
+        async def translate_live_segment(segment: TranscriptSegment) -> None:
+            """Add Tamil to one committed line without blocking live captions."""
+            current_task = asyncio.current_task()
+            try:
+                if not settings.auto_translate:
+                    return
+                translations = await GeminiService().translate_segments(
+                    [segment], settings.target_language
+                )
+                translated_text = translations[0] if translations else ""
+                if not translated_text:
+                    return
+                for index, saved in enumerate(record.segments):
+                    if (
+                        saved.start == segment.start
+                        and saved.end == segment.end
+                        and saved.text == segment.text
+                    ):
+                        translated_segment = saved.model_copy(
+                            update={"translated_text": translated_text}
+                        )
+                        record.segments[index] = translated_segment
+                        await save_record(record)
+                        await websocket.send_json(
+                            {
+                                "type": "translation",
+                                "segment": translated_segment.model_dump(),
+                            }
+                        )
+                        break
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning("Live line translation skipped: %s", exc)
+            finally:
+                if current_task is not None:
+                    translation_tasks.discard(current_task)
 
         async def send_live_audio() -> None:
             warning_sent = False
@@ -385,6 +424,11 @@ async def live_transcription(websocket: WebSocket) -> None:
                         await websocket.send_json(
                             {"type": "transcript", "segment": segment.model_dump()}
                         )
+                        if settings.auto_translate:
+                            translation_task = asyncio.create_task(
+                                translate_live_segment(segment)
+                            )
+                            translation_tasks.add(translation_task)
             except asyncio.CancelledError:
                 return
 
@@ -441,6 +485,15 @@ async def live_transcription(websocket: WebSocket) -> None:
                         pending.clear()
                     await queue.put(None)
                     await workers_gather
+                if translation_tasks:
+                    try:
+                        await asyncio.wait_for(
+                            asyncio.gather(*translation_tasks, return_exceptions=True),
+                            timeout=min(3.0, settings.live_stop_preview_grace_seconds),
+                        )
+                    except TimeoutError:
+                        for task in list(translation_tasks):
+                            task.cancel()
                 break
 
         await live_connect.__aexit__(None, None, None)
@@ -484,6 +537,11 @@ async def live_transcription(websocket: WebSocket) -> None:
                 task.cancel()
         if workers:
             await asyncio.gather(*workers, return_exceptions=True)
+        for task in list(translation_tasks):
+            if not task.done():
+                task.cancel()
+        if translation_tasks:
+            await asyncio.gather(*translation_tasks, return_exceptions=True)
         if live_connect is not None and live_entered:
             await live_connect.__aexit__(None, None, None)
         if record and not stopped and record.status == JobStatus.processing:
