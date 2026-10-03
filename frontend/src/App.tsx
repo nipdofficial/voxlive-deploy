@@ -883,7 +883,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
     }, LIVE_CONNECTION_TIMEOUT_MS);
     const clearConnectionTimer = () => clearTimeout(connectionTimer);
     socket.onopen = () => {
-      socket.send(JSON.stringify({ language, session_type: sessionType, diarization, sample_rate: 16000, title: `${sessionType} • ${new Date().toLocaleString()}` }));
+      socket.send(JSON.stringify({ language, session_type: sessionType, diarization, realtime_translation: sessionType === "Live", sample_rate: 16000, title: `${sessionType} • ${new Date().toLocaleString()}` }));
     };
     socket.onmessage = (event) => {
       void (async () => {

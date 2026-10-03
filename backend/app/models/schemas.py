@@ -118,6 +118,7 @@ class LiveStart(BaseModel):
     language: Language
     session_type: SessionType = SessionType.live
     diarization: bool = False
+    realtime_translation: bool = True
     sample_rate: int = Field(default=16000, ge=8000, le=48000)
     title: str = Field(default="Live transcription", min_length=1, max_length=200)
 

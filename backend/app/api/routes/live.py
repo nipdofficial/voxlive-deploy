@@ -334,7 +334,7 @@ async def live_transcription(websocket: WebSocket) -> None:
             """Add Tamil to one committed line without blocking live captions."""
             current_task = asyncio.current_task()
             try:
-                if not settings.auto_translate:
+                if not settings.auto_translate or not start.realtime_translation:
                     return
                 translations = await GeminiService().translate_segments(
                     [segment], settings.target_language
@@ -429,7 +429,7 @@ async def live_transcription(websocket: WebSocket) -> None:
                         await websocket.send_json(
                             {"type": "transcript", "segment": segment.model_dump()}
                         )
-                        if settings.auto_translate:
+                        if settings.auto_translate and start.realtime_translation:
                             translation_task = asyncio.create_task(
                                 translate_live_segment(segment)
                             )
