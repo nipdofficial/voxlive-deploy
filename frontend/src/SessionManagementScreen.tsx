@@ -291,7 +291,7 @@ export function SessionManagementScreen({ onJoinSession, onOpenCreatedSession, i
             <View style={styles.fieldGroup}>
               <Text style={styles.label}>Speaker input language</Text>
               <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-                {(["Sinhala", "Tamil", "English", "Mixed"] as Language[]).map((option) => <Pressable key={option} onPress={() => setLanguage(option)} style={{ paddingHorizontal: 11, paddingVertical: 8, borderRadius: 9, borderWidth: 1, borderColor: language === option ? "#8067CE" : "rgba(255,255,255,0.12)", backgroundColor: language === option ? "#755BD0" : "rgba(255,255,255,0.05)" }}><Text style={{ color: language === option ? "white" : "#B8B1C8", fontSize: 11, fontWeight: "600" }}>{option}</Text></Pressable>)}
+                {(["Sinhala", "Mixed"] as Language[]).map((option) => <Pressable key={option} onPress={() => setLanguage(option)} style={{ paddingHorizontal: 11, paddingVertical: 8, borderRadius: 9, borderWidth: 1, borderColor: language === option ? "#8067CE" : "rgba(255,255,255,0.12)", backgroundColor: language === option ? "#755BD0" : "rgba(255,255,255,0.05)" }}><Text style={{ color: language === option ? "white" : "#B8B1C8", fontSize: 11, fontWeight: "600" }}>{option}</Text></Pressable>)}
               </View>
               <Text style={styles.hint}>Choose one language for better live recognition, or use Mixed for automatic detection.</Text>
             </View>
