@@ -210,7 +210,7 @@ async def _finalize_live(record: TranscriptRecord, path: Path) -> None:
                 if energy is not None and energy < silence_threshold:
                     record.segments = []
                 elif len(audio) <= inline_limit:
-                    record.segments = await GeminiService().transcribe_file(
+                    final_segments = await GeminiService().transcribe_file(
                         audio,
                         "audio/wav",
                         record.language,
@@ -218,6 +218,16 @@ async def _finalize_live(record: TranscriptRecord, path: Path) -> None:
                         include_speakers=record.diarization,
                         audio_duration_seconds=record.duration_seconds,
                     )
+                    # A provider can validly return an empty result for a
+                    # short/noisy full pass. Never erase useful live captions
+                    # in that case; keep the preview as the completed record.
+                    if final_segments:
+                        record.segments = final_segments
+                    else:
+                        record.segments = preview_segments
+                        record.error = (
+                            "Final quality pass returned no speech; live preview retained"
+                        ) if preview_segments else "No speech was detected"
                     if getattr(settings, "auto_translate", False) and record.segments and any(
                         not item.translated_text for item in record.segments
                     ):
