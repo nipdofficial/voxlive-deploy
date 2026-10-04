@@ -21,7 +21,7 @@ from app.models.schemas import (
 )
 from app.services.audio_service import pcm_rms as _pcm_rms, wav_rms
 from app.services.diarization_service import diarize_file, merge_transcript_and_speakers
-from app.services.gemini_service import GeminiService
+from app.services.gemini_service import GeminiService, detect_script_language
 
 router = APIRouter(tags=["live"])
 logger = logging.getLogger(__name__)
@@ -51,6 +51,11 @@ def _live_language(value: str | None) -> SpokenLanguage | None:
     return SpokenLanguage.unknown
 
 
+def _live_detected_language(value: str | None, text: str) -> SpokenLanguage:
+    """Use Gemini's code first, then deterministic Unicode script detection."""
+    return _live_language(value) or detect_script_language(text)
+
+
 def _seconds(value: str | None) -> float | None:
     if not value:
         return None
@@ -77,7 +82,9 @@ def _live_segment(
         end=end,
         text=text,
         speaker=transcription.speaker_label,
-        detected_language=_live_language(transcription.language_code),
+        detected_language=_live_detected_language(
+            transcription.language_code, text
+        ),
     )
 
 
@@ -427,8 +434,8 @@ async def live_transcription(websocket: WebSocket) -> None:
                                 {
                                     "type": "interim",
                                     "text": interim.text,
-                                    "detected_language": _live_language(
-                                        interim.language_code
+                                    "detected_language": _live_detected_language(
+                                        interim.language_code, interim.text
                                     ),
                                 }
                             )
