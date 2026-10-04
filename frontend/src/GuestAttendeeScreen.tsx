@@ -14,7 +14,7 @@ import * as Sharing from "expo-sharing";
 import { File, Paths } from "expo-file-system";
 import { Feather } from "@expo/vector-icons";
 
-import { getSessionInfo, joinMeeting } from "./api";
+import { getSessionInfo, getTranscript, joinMeeting } from "./api";
 import type { MeetingClient, MeetingParticipantView } from "./livekitMeeting";
 import type { Segment, SessionInfo } from "./types";
 
@@ -36,6 +36,7 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
   const [elapsed, setElapsed] = useState(0);
 
   const styles = useMemo(() => createStyles(), []);
+  const joined = Boolean(client);
 
   useEffect(() => {
     void getSessionInfo(roomCode).then((session) => {
@@ -54,6 +55,24 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
   }, [startedAt]);
 
   useEffect(() => () => { void client?.disconnect(); }, [client]);
+
+  // The backend keeps the authoritative meeting transcript. Refresh the
+  // attendee copy when the organizer ends the room so both views retain the
+  // completed transcript, including any final segments not received live.
+  useEffect(() => {
+    if (!joined || !info) return;
+    const timer = setInterval(() => {
+      void getSessionInfo(roomCode).then(async (session) => {
+        setInfo(session);
+        if (!session.is_active) {
+          setStatus("ended");
+          const record = await getTranscript(session.meeting_id).catch(() => null);
+          if (record?.segments.length) setSegments(record.segments);
+        }
+      }).catch(() => undefined);
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [joined, info?.meeting_id, roomCode]);
 
   const join = async () => {
     if (!name.trim() || !info?.is_active) return;
@@ -108,12 +127,15 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
   };
 
   const leave = async () => {
+    if (info?.meeting_id) {
+      const record = await getTranscript(info.meeting_id).catch(() => null);
+      if (record?.segments.length) setSegments(record.segments);
+    }
     await client?.disconnect();
     setClient(null);
     setStatus("left");
   };
 
-  const joined = Boolean(client);
   return (
     <View style={styles.page}>
       <View style={styles.glow} />

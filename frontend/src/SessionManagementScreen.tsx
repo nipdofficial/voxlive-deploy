@@ -161,17 +161,6 @@ export function SessionManagementScreen({ onOpenCreatedSession, isDark }: Sessio
         </Text>
       </View>
 
-      <View style={[styles.card, { marginBottom: 22 }]}>
-        <Text style={styles.cardHeader}>Session control</Text>
-        <Text style={styles.hint}>Manage ongoing sessions and download saved transcripts.</Text>
-        <Text style={[styles.label, { marginTop: 18 }]}>ONGOING SESSIONS</Text>
-        {activeSession?.info?.is_active ? <View style={styles.sessionListRow}><View style={{ flex: 1 }}><Text style={styles.sessionTitle}>{activeSession.title}</Text><Text style={styles.sessionCodeLabel}>Room {activeSession.code} · {activeSession.info.current_participants} connected</Text></View><Text style={styles.liveStatus}>LIVE</Text></View> : <Text style={styles.emptySession}>No ongoing sessions</Text>}
-        <Text style={[styles.label, { marginTop: 18 }]}>UPCOMING SESSIONS</Text>
-        <Text style={styles.emptySession}>No upcoming sessions</Text>
-        <Text style={[styles.label, { marginTop: 18 }]}>PAST SESSIONS</Text>
-        {completedSessions.length ? completedSessions.map((record) => <View key={record.id} style={styles.sessionListRow}><View style={{ flex: 1 }}><Text style={styles.sessionTitle}>{record.title}</Text><Text style={styles.sessionCodeLabel}>{record.language} · {record.status} · {new Date(record.created_at).toLocaleDateString()}</Text></View><Pressable onPress={() => void downloadTranscript(record)} disabled={!record.segments.length} style={[styles.downloadButton, !record.segments.length && { opacity: 0.45 }]}><Feather name="download" size={15} color="#A78BFA" /><Text style={styles.downloadText}>TXT</Text></Pressable></View>) : <Text style={styles.emptySession}>No saved sessions yet</Text>}
-      </View>
-
       {activeSession ? (
           /* Active Created Session View */
           <View style={[styles.card, isWide && styles.cardWide]}>
@@ -318,6 +307,17 @@ export function SessionManagementScreen({ onOpenCreatedSession, isDark }: Sessio
           </View>
         )
       }
+
+      <View style={[styles.card, { marginTop: 22 }]}>
+        <Text style={styles.cardHeader}>Session control</Text>
+        <Text style={styles.hint}>Manage ongoing events and download saved transcripts.</Text>
+        <Text style={[styles.label, { marginTop: 18 }]}>ONGOING SESSIONS</Text>
+        {activeSession?.info?.is_active ? <View style={styles.sessionListRow}><View style={{ flex: 1 }}><Text style={styles.sessionTitle}>{activeSession.title}</Text><Text style={styles.sessionCodeLabel}>Room {activeSession.code} · {activeSession.info.current_participants} connected</Text></View><Text style={styles.liveStatus}>LIVE</Text></View> : <Text style={styles.emptySession}>No ongoing sessions</Text>}
+        <Text style={[styles.label, { marginTop: 18 }]}>UPCOMING SESSIONS</Text>
+        <Text style={styles.emptySession}>No upcoming sessions</Text>
+        <Text style={[styles.label, { marginTop: 18 }]}>PAST SESSIONS</Text>
+        {completedSessions.length ? completedSessions.map((record) => <View key={record.id} style={styles.sessionListRow}><View style={{ flex: 1 }}><Text style={styles.sessionTitle}>{record.title}</Text><Text style={styles.sessionCodeLabel}>{record.language} · {record.status} · {new Date(record.created_at).toLocaleDateString()}</Text></View><Pressable onPress={() => void downloadTranscript(record)} disabled={!record.segments.length} style={[styles.downloadButton, !record.segments.length && { opacity: 0.45 }]}><Feather name="download" size={15} color="#A78BFA" /><Text style={styles.downloadText}>TXT</Text></Pressable></View>) : <Text style={styles.emptySession}>No saved sessions yet</Text>}
+      </View>
     </ScrollView>
   );
 }
