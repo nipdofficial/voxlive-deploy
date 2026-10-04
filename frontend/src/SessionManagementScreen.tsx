@@ -155,9 +155,9 @@ export function SessionManagementScreen({ onOpenCreatedSession, isDark }: Sessio
     <ScrollView contentContainerStyle={styles.container}>
       <View style={styles.header}>
         <Text style={styles.eyebrow}>SESSION MANAGEMENT</Text>
-        <Text style={styles.title}>Event Sessions & QR Access</Text>
+        <Text style={styles.title}>Session Control Center</Text>
         <Text style={styles.subtitle}>
-          Organizers can create managed event sessions with participant caps and automatically generated QR codes.
+          Create sessions, monitor ongoing events, and download translated transcripts. Attendees join through QR access.
         </Text>
       </View>
 
