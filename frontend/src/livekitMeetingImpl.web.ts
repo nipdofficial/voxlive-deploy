@@ -40,10 +40,26 @@ export const connectMeeting: ConnectMeeting = async (url, token, callbacks, opti
   });
 
   callbacks.onConnectionChange("connecting");
+  if (options.publishMicrophone) {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error("This browser does not provide microphone access");
+    }
+    // Request permission before connecting so the organizer's click is still
+    // associated with the browser permission prompt. LiveKit opens its own
+    // track immediately afterwards.
+    const permissionStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    permissionStream.getTracks().forEach((track) => track.stop());
+  }
   await room.connect(url, token);
   await room.startAudio();
   try {
     await room.localParticipant.setMicrophoneEnabled(options.publishMicrophone);
+    if (options.publishMicrophone && ![...room.localParticipant.trackPublications.values()].some((publication) => publication.kind === Track.Kind.Audio)) {
+      // A permission prompt can race the first LiveKit publication on some
+      // browsers. Retry once before declaring the organizer connected.
+      await room.localParticipant.setMicrophoneEnabled(false);
+      await room.localParticipant.setMicrophoneEnabled(true);
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : "Microphone permission or publishing failed";
     callbacks.onError(new Error(`Organizer microphone unavailable: ${message}`));

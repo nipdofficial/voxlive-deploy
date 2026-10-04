@@ -38,6 +38,13 @@ export const connectMeeting: ConnectMeeting = async (url, token, callbacks, opti
   await room.connect(url, token);
   try {
     await room.localParticipant.setMicrophoneEnabled(options.publishMicrophone);
+    if (options.publishMicrophone && ![...room.localParticipant.trackPublications.values()].some((publication) => publication.kind === Track.Kind.Audio)) {
+      // Retry once when Android/iOS finishes the audio session after the room
+      // connects. Without this, the UI can say connected while no mic track
+      // is published to the transcription worker.
+      await room.localParticipant.setMicrophoneEnabled(false);
+      await room.localParticipant.setMicrophoneEnabled(true);
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : "Microphone permission or publishing failed";
     callbacks.onError(new Error(`Organizer microphone unavailable: ${message}`));
