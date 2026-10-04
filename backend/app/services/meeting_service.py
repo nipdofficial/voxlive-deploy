@@ -327,6 +327,7 @@ class MeetingSession:
                     model=settings.gemini_live_model,
                     audio_duration_seconds=len(chunk) / (SAMPLE_RATE * 2),
                     request_timeout_seconds=settings.gemini_live_timeout_seconds,
+                    translate_to=settings.target_language if settings.auto_translate else None,
                     verify_mixed_language=False,
                     use_structured_mixed_model=False,
                 )
@@ -539,11 +540,13 @@ def create_join_token(
     identity: str,
     display_name: str,
     shared_mic: bool,
+    *,
+    is_host: bool = True,
 ) -> str:
     from livekit import api
 
     settings = get_settings()
-    metadata = json.dumps({"shared_mic": shared_mic})
+    metadata = json.dumps({"shared_mic": shared_mic if is_host else False})
     return (
         api.AccessToken(settings.livekit_api_key, settings.livekit_api_secret)
         .with_identity(identity)
@@ -554,10 +557,10 @@ def create_join_token(
             api.VideoGrants(
                 room_join=True,
                 room=session.room_name,
-                can_publish=True,
+                can_publish=is_host,
                 can_subscribe=True,
                 can_publish_data=False,
-                can_publish_sources=["microphone"],
+                can_publish_sources=["microphone"] if is_host else [],
             )
         )
     ).to_jwt()

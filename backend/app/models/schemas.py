@@ -149,6 +149,7 @@ class MeetingConnection(BaseModel):
     display_name: str
     is_host: bool = False
     host_secret: str | None = None
+    language: Language | None = None
 
 
 class SessionInfo(BaseModel):
@@ -164,6 +165,11 @@ class SessionInfo(BaseModel):
 
 class MeetingEnd(BaseModel):
     host_secret: str = Field(min_length=1)
+
+
+class MeetingUpdate(BaseModel):
+    host_secret: str = Field(min_length=1)
+    language: Language
 
 
 class TranscriptEdit(BaseModel):

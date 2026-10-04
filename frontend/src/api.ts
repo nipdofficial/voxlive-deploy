@@ -169,6 +169,16 @@ export async function endMeeting(roomCode: string, hostSecret: string): Promise<
   return response.json();
 }
 
+export async function updateMeetingLanguage(roomCode: string, hostSecret: string, language: Language): Promise<SessionInfo> {
+  const response = await fetch(`${API_URL}/meetings/${encodeURIComponent(roomCode.trim().toUpperCase())}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ host_secret: hostSecret, language }),
+  });
+  if (!response.ok) throw new Error((await response.text()) || "Could not update session language");
+  return response.json();
+}
+
 export async function getSessionInfo(roomCode: string): Promise<SessionInfo> {
   const response = await fetch(`${API_URL}/meetings/${encodeURIComponent(roomCode.trim().toUpperCase())}`);
   if (!response.ok) throw new Error("Session not found");

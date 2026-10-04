@@ -69,6 +69,7 @@ export interface MeetingConnection {
   display_name: string;
   is_host: boolean;
   host_secret?: string | null;
+  language?: Language;
 }
 
 export interface SessionInfo {

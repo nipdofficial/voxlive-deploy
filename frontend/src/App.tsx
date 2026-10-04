@@ -37,7 +37,7 @@ import {
   useFonts,
 } from "@expo-google-fonts/dm-sans";
 
-import { cancelTranscription, createMeeting, deleteTranscript, endMeeting, generateTranscriptSummary, getHistory, getTranscript, joinMeeting, renameTranscriptSpeaker, retryTranscription, submitAudio, translateTranscript, updateTranscript, WS_URL } from "./api";
+import { cancelTranscription, createMeeting, deleteTranscript, endMeeting, generateTranscriptSummary, getHistory, getTranscript, joinMeeting, renameTranscriptSpeaker, retryTranscription, submitAudio, translateTranscript, updateMeetingLanguage, updateTranscript, WS_URL } from "./api";
 import type { Language, MeetingConnection, ProcessingStage, Segment, SessionType, TranscriptRecord, TranscriptSummary } from "./types";
 import type { MeetingClient, MeetingParticipantView } from "./livekitMeeting";
 import { startWebAudioStream, type WebAudioStream } from "./webAudioStream";
@@ -1053,10 +1053,23 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
         return duplicate ? current : [...current, segment].sort((a, b) => a.start - b.start);
       }),
       onError: (error) => Alert.alert("Meeting", error.message),
-    });
+    }, { publishMicrophone: connection.is_host });
     meetingClientRef.current = client;
+    if (connection.language) setLanguage(connection.language);
     setActive(true);
     setBusy(false);
+  };
+
+  const changeMeetingLanguage = async (nextLanguage: Language) => {
+    const connection = meetingConnection;
+    if (!connection?.is_host || !connection.host_secret || nextLanguage === language) return;
+    try {
+      await updateMeetingLanguage(connection.room_code, connection.host_secret, nextLanguage);
+      setLanguage(nextLanguage);
+      setStatus("connected");
+    } catch (error) {
+      Alert.alert("Could not change language", error instanceof Error ? error.message : "Session language update failed");
+    }
   };
 
   const startMeeting = async (join: boolean) => {
@@ -1389,21 +1402,26 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
             />
           ) : (
             <>
-          {sessionType === "Meeting" && meetingConnection?.is_host ? (
-            <View style={{ width: "100%", maxWidth: 1180, alignSelf: "center", padding: 18, marginBottom: 18, borderRadius: 18, backgroundColor: "#211B32", borderWidth: 1, borderColor: "#4B4262" }}>
-              <Text style={{ color: "#B9A7FF", fontSize: 9, fontWeight: "700", letterSpacing: 1.4 }}>LIVE SESSION</Text>
-              <Text style={{ color: "#F1ECFF", fontSize: 22, fontWeight: "700", marginTop: 6 }}>{meetingTitle || "Live session"}</Text>
-              <Text style={{ color: "#B8B1C8", fontSize: 12, marginTop: 4 }}>Room {meetingConnection.room_code} · Organizer view · {meetingParticipants.length} connected</Text>
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
-                {meetingParticipants.map((participant) => <View key={participant.identity} style={{ paddingHorizontal: 10, paddingVertical: 7, borderRadius: 10, backgroundColor: "rgba(159,122,234,0.16)" }}><Text style={{ color: "#D1C0FF", fontSize: 11 }}>{participant.name}</Text></View>)}
-              </View>
-            </View>
-          ) : null}
           <View style={styles.pageIntro}>
             <Text style={styles.eyebrow}>NEW TRANSCRIPTION</Text>
             <TypewriterText text="Turn every voice into words." style={styles.heroTitle} />
             <Text style={styles.heroCopy}>Fast, accurate transcription for Sinhala, Tamil and English.</Text>
           </View>
+          {sessionType === "Meeting" && meetingConnection?.is_host ? (
+            <View style={{ width: "100%", maxWidth: 1180, alignSelf: "center", padding: 18, marginBottom: 18, borderRadius: 18, backgroundColor: "#211B32", borderWidth: 1, borderColor: "#4B4262" }}>
+              <Text style={{ color: "#B9A7FF", fontSize: 9, fontWeight: "700", letterSpacing: 1.4 }}>SESSION DETAILS</Text>
+              <Text style={{ color: "#F1ECFF", fontSize: 22, fontWeight: "700", marginTop: 6 }}>{meetingTitle || "Live session"}</Text>
+              <Text style={{ color: "#B8B1C8", fontSize: 12, marginTop: 4 }}>Room {meetingConnection.room_code} · Organizer view · {meetingParticipants.length} connected</Text>
+              <Text style={{ color: "#B9A7FF", fontSize: 10, fontWeight: "700", marginTop: 14 }}>INPUT LANGUAGE</Text>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+                {(["Sinhala", "Mixed"] as Language[]).map((option) => <Pressable key={option} onPress={() => void changeMeetingLanguage(option)} disabled={status === "finalizing meeting"} style={{ paddingHorizontal: 11, paddingVertical: 8, borderRadius: 9, borderWidth: 1, borderColor: language === option ? "#8067CE" : "rgba(255,255,255,0.12)", backgroundColor: language === option ? "#755BD0" : "rgba(255,255,255,0.05)" }}><Text style={{ color: language === option ? "white" : "#B8B1C8", fontSize: 11, fontWeight: "600" }}>{option}</Text></Pressable>)}
+              </View>
+              <Text style={{ color: "#B9A7FF", fontSize: 10, fontWeight: "700", marginTop: 14 }}>ATTENDEES</Text>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
+                {meetingParticipants.length ? meetingParticipants.map((participant) => <View key={participant.identity} style={{ paddingHorizontal: 10, paddingVertical: 7, borderRadius: 10, backgroundColor: "rgba(159,122,234,0.16)" }}><Text style={{ color: "#D1C0FF", fontSize: 11 }}>{participant.name}</Text></View>) : <Text style={{ color: "#8F8A9E", fontSize: 11 }}>Waiting for attendees…</Text>}
+              </View>
+            </View>
+          ) : null}
           <View style={[styles.workspace, isWide && styles.workspaceWide]}>
             <View style={styles.controlsColumn}>
               <View style={styles.controlSection}>

@@ -12,6 +12,7 @@ from app.models.schemas import (
     MeetingCreate,
     MeetingEnd,
     MeetingJoin,
+    MeetingUpdate,
     SessionInfo,
     SessionType,
     TranscriptRecord,
@@ -37,6 +38,7 @@ def _connection(session, participant, token: str, *, is_host: bool) -> MeetingCo
         display_name=participant.display_name,
         is_host=is_host,
         host_secret=session.host_secret if is_host else None,
+        language=session.language,
     )
 
 
@@ -79,7 +81,7 @@ async def create_meeting(body: MeetingCreate) -> MeetingConnection:
     identity = participant_identity()
     participant = session.add_participant(identity, display_name, body.shared_mic)
     await save_record(record)
-    token = create_join_token(session, identity, display_name, body.shared_mic)
+    token = create_join_token(session, identity, display_name, body.shared_mic, is_host=True)
     return _connection(session, participant, token, is_host=True)
 
 
@@ -136,8 +138,21 @@ async def join_meeting(code: str, body: MeetingJoin) -> MeetingConnection:
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     await save_record(session.record)
-    token = create_join_token(session, identity, display_name, body.shared_mic)
+    token = create_join_token(session, identity, display_name, body.shared_mic, is_host=False)
     return _connection(session, participant, token, is_host=False)
+
+
+@router.patch("/{code}", response_model=SessionInfo)
+async def update_meeting(code: str, body: MeetingUpdate) -> SessionInfo:
+    session = meeting_registry.get(code)
+    if not session or session.ending:
+        raise HTTPException(status_code=404, detail="Session not found or already ended")
+    if not hmac.compare_digest(session.host_secret, body.host_secret):
+        raise HTTPException(status_code=403, detail="Only the session host can update it")
+    session.language = body.language
+    session.record.language = body.language
+    await save_record(session.record)
+    return _session_info(session)
 
 
 @router.post("/{code}/end", status_code=status.HTTP_202_ACCEPTED)

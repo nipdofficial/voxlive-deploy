@@ -4,7 +4,7 @@ import type { ConnectMeeting, MeetingParticipantView } from "./livekitMeeting";
 
 registerGlobals();
 
-export const connectMeeting: ConnectMeeting = async (url, token, callbacks) => {
+export const connectMeeting: ConnectMeeting = async (url, token, callbacks, options) => {
   const room = new Room({ adaptiveStream: true, dynacast: true });
   const participants = (): MeetingParticipantView[] => [
     { identity: room.localParticipant.identity, name: room.localParticipant.name || room.localParticipant.identity },
@@ -33,7 +33,7 @@ export const connectMeeting: ConnectMeeting = async (url, token, callbacks) => {
   callbacks.onConnectionChange("connecting");
   await AudioSession.startAudioSession();
   await room.connect(url, token);
-  await room.localParticipant.setMicrophoneEnabled(true);
+  await room.localParticipant.setMicrophoneEnabled(options.publishMicrophone);
   callbacks.onConnectionChange("connected");
   updateParticipants();
   return {

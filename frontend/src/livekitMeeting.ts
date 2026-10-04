@@ -9,6 +9,8 @@ export type MeetingCallbacks = {
   onError: (error: Error) => void;
 };
 
+export type MeetingConnectOptions = { publishMicrophone: boolean };
+
 export interface MeetingClient {
   disconnect: () => Promise<void>;
   setMicrophoneEnabled: (enabled: boolean) => Promise<void>;
@@ -18,4 +20,5 @@ export type ConnectMeeting = (
   url: string,
   token: string,
   callbacks: MeetingCallbacks,
+  options: MeetingConnectOptions,
 ) => Promise<MeetingClient>;
