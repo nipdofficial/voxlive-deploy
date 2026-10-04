@@ -1,5 +1,6 @@
 import asyncio
 import re
+import wave
 from types import SimpleNamespace
 
 import pytest
@@ -12,6 +13,7 @@ from app.services.meeting_service import (
     label_segments,
     merge_room_segments,
     normalize_display_name,
+    raw_pcm_to_wav,
 )
 
 
@@ -23,6 +25,28 @@ def test_room_code_is_short_unambiguous_and_random() -> None:
 
 def test_display_name_is_normalized() -> None:
     assert normalize_display_name("  Anu   Kumar  ") == "Anu Kumar"
+
+
+def test_raw_pcm_is_written_as_valid_wav(tmp_path) -> None:
+    raw_path = tmp_path / "audio.pcm"
+    wav_path = tmp_path / "audio.wav"
+    pcm = b"\x01\x02" * 160
+    raw_path.write_bytes(pcm)
+
+    raw_pcm_to_wav(raw_path, wav_path)
+
+    with wave.open(str(wav_path), "rb") as audio:
+        assert audio.getnchannels() == 1
+        assert audio.getsampwidth() == 2
+        assert audio.getframerate() == 16_000
+        assert audio.readframes(160) == pcm
+
+
+def test_meeting_chunk_settings_are_available() -> None:
+    from app.core.config import Settings
+
+    settings = Settings(_env_file=None)
+    assert settings.live_chunk_seconds > settings.live_chunk_overlap_seconds > 0
 
 
 def test_participant_label_and_room_offset_are_preserved() -> None:

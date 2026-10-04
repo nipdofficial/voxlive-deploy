@@ -2,7 +2,6 @@ import asyncio
 import io
 import json
 import secrets
-import shutil
 import time
 import wave
 from dataclasses import dataclass, field
@@ -120,7 +119,8 @@ def raw_pcm_to_wav(raw_path: Path, wav_path: Path) -> None:
         output.setnchannels(1)
         output.setsampwidth(2)
         output.setframerate(SAMPLE_RATE)
-        shutil.copyfileobj(source, output, length=1024 * 1024)
+        while chunk := source.read(1024 * 1024):
+            output.writeframes(chunk)
 
 
 class MeetingSession:
