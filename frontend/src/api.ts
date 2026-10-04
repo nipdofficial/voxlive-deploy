@@ -5,7 +5,16 @@ import type { Language, MeetingConnection, SessionInfo, SessionType, TranscriptR
 
 
 const runtimeEnv = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
-export const API_URL = runtimeEnv?.EXPO_PUBLIC_API_URL ?? "http://localhost:8000/api";
+const browserLocation = (globalThis as { location?: { hostname?: string } }).location;
+const isDeployedWeb = Boolean(
+  browserLocation?.hostname &&
+  browserLocation.hostname !== "localhost" &&
+  browserLocation.hostname !== "127.0.0.1",
+);
+const defaultApiUrl = isDeployedWeb
+  ? "https://helascribe-api.onrender.com/api"
+  : "http://localhost:8000/api";
+export const API_URL = runtimeEnv?.EXPO_PUBLIC_API_URL ?? defaultApiUrl;
 export const WS_URL = API_URL.replace(/^http/, "ws") + "/live";
 export const HISTORY_WS_URL = API_URL.replace(/^http/, "ws") + "/history/events";
 
