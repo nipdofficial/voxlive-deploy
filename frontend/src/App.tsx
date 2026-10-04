@@ -1189,6 +1189,8 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
     }
     : null;
   const currentExportRecord = liveMeetingRecord ?? history.find((record) => record.id === currentRecordId) ?? null;
+  const organizerMeeting = sessionType === "Meeting";
+  const availableSessionTypes = SESSION_TYPES.filter((item) => !(organizerMeeting && item.value === "Record"));
   const filteredHistory = useMemo(() => {
     const needle = historySearch.trim().toLocaleLowerCase();
     return history.filter((record) => {
@@ -1429,7 +1431,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
               <View style={styles.controlSection}>
                 <SectionTitle number="02" title="How would you like to begin?" styles={styles} />
                 <View style={[styles.sessionGrid, !isWide && width < 540 && styles.sessionGridStack]}>
-                  {SESSION_TYPES.map((item) => (
+                  {availableSessionTypes.map((item) => (
                     <Pressable key={item.value} accessibilityRole="radio" accessibilityLabel={`${item.label}. ${item.hint}`} accessibilityState={{ checked: sessionType === item.value, disabled: active || busy }} disabled={active || busy} onPress={() => setSessionType(item.value)} style={({ pressed }) => [styles.sessionCard, sessionType === item.value && styles.sessionCardActive, (active || busy) && { opacity: 0.55 }, pressed && { opacity: 0.8 }]}>
                       <View style={[styles.sessionIcon, sessionType === item.value && styles.sessionIconActive]}><Feather name={item.icon} size={20} color={sessionType === item.value ? "white" : "#9A95A8"} /></View>
                       <Text style={[styles.sessionLabel, sessionType === item.value && styles.sessionLabelActive]}>{item.label}</Text>

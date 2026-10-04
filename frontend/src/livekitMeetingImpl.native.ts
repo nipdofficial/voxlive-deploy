@@ -1,5 +1,5 @@
 import { AudioSession, registerGlobals } from "@livekit/react-native";
-import { Room, RoomEvent } from "livekit-client";
+import { Room, RoomEvent, Track } from "livekit-client";
 import type { ConnectMeeting, MeetingParticipantView } from "./livekitMeeting";
 
 registerGlobals();
@@ -20,6 +20,9 @@ export const connectMeeting: ConnectMeeting = async (url, token, callbacks, opti
   room.on(RoomEvent.Reconnecting, () => callbacks.onConnectionChange("reconnecting"));
   room.on(RoomEvent.Reconnected, () => callbacks.onConnectionChange("connected"));
   room.on(RoomEvent.Disconnected, () => callbacks.onConnectionChange("disconnected"));
+  room.on(RoomEvent.LocalTrackPublished, (publication) => {
+    if (options.publishMicrophone && publication.kind === Track.Kind.Audio) callbacks.onConnectionChange("microphone ready");
+  });
   room.on(RoomEvent.DataReceived, (payload, _participant, _kind, topic) => {
     if (topic !== "transcript.segment") return;
     try {
@@ -33,7 +36,14 @@ export const connectMeeting: ConnectMeeting = async (url, token, callbacks, opti
   callbacks.onConnectionChange("connecting");
   await AudioSession.startAudioSession();
   await room.connect(url, token);
-  await room.localParticipant.setMicrophoneEnabled(options.publishMicrophone);
+  try {
+    await room.localParticipant.setMicrophoneEnabled(options.publishMicrophone);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Microphone permission or publishing failed";
+    callbacks.onError(new Error(`Organizer microphone unavailable: ${message}`));
+    await room.disconnect();
+    throw error;
+  }
   callbacks.onConnectionChange("connected");
   updateParticipants();
   return {
