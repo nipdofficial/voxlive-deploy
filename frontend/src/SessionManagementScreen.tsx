@@ -42,9 +42,11 @@ export function SessionManagementScreen({ onJoinSession, onOpenCreatedSession, i
     title: string;
     qrUrl: string;
     connection: MeetingConnection;
+    joinUrl: string;
     info?: SessionInfo;
   } | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
   const [refreshingInfo, setRefreshingInfo] = useState(false);
 
   // Join form state
@@ -90,6 +92,7 @@ export function SessionManagementScreen({ onJoinSession, onOpenCreatedSession, i
         title: sessionTitle.trim() || "Event Session",
         qrUrl,
         connection: conn,
+        joinUrl: `${typeof window !== "undefined" ? window.location.origin : "https://voxlive-deploy-frontend.vercel.app"}/?session=${conn.room_code}`,
         info,
       });
     } catch (err) {
@@ -99,12 +102,22 @@ export function SessionManagementScreen({ onJoinSession, onOpenCreatedSession, i
     }
   };
 
+  useEffect(() => {
+    if (!activeSession) return;
+    const timer = setInterval(() => {
+      void getSessionInfo(activeSession.code).then((info) => {
+        setActiveSession((previous) => previous ? { ...previous, info } : previous);
+      }).catch(() => undefined);
+    }, 4000);
+    return () => clearInterval(timer);
+  }, [activeSession?.code]);
+
   const handleRefreshInfo = async () => {
     if (!activeSession) return;
     setRefreshingInfo(true);
     try {
       const info = await getSessionInfo(activeSession.code);
-      setActiveSession((prev: { code: string; title: string; qrUrl: string; info?: SessionInfo } | null) => (prev ? { ...prev, info } : null));
+      setActiveSession((prev) => (prev ? { ...prev, info } : null));
     } catch (err) {
       console.warn("Could not refresh session info", err);
     } finally {
@@ -117,6 +130,13 @@ export function SessionManagementScreen({ onJoinSession, onOpenCreatedSession, i
     await Clipboard.setStringAsync(activeSession.code);
     setCopiedCode(true);
     setTimeout(() => setCopiedCode(false), 2000);
+  };
+
+  const handleCopyLink = async () => {
+    if (!activeSession) return;
+    await Clipboard.setStringAsync(activeSession.joinUrl);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
   };
 
   const handleJoinSubmit = async () => {
@@ -225,7 +245,12 @@ export function SessionManagementScreen({ onJoinSession, onOpenCreatedSession, i
                     {copiedCode ? "Code Copied!" : "Copy Session Code"}
                   </Text>
                 </Pressable>
+                <Pressable style={styles.secondaryButton} onPress={handleCopyLink}>
+                  <Feather name={copiedLink ? "check" : "link"} size={16} color="#A78BFA" />
+                  <Text style={styles.secondaryButtonText}>{copiedLink ? "Link Copied!" : "Copy Join Link"}</Text>
+                </Pressable>
               </View>
+              <Text numberOfLines={2} style={{ color: "#8F8A9E", fontSize: 10, textAlign: "center", marginTop: 9 }}>{activeSession.joinUrl}</Text>
             </View>
 
             {/* Participant Stats */}

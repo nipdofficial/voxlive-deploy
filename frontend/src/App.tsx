@@ -526,6 +526,63 @@ function TranscriptPanel({
   );
 }
 
+function MeetingRoomScreen({
+  connection,
+  title,
+  active,
+  status,
+  duration,
+  segments,
+  participants,
+  exportRecord,
+  styles,
+  onCopy,
+  onSaveTranscript,
+  onFeedback,
+}: {
+  connection: MeetingConnection;
+  title: string;
+  active: boolean;
+  status: string;
+  duration: number;
+  segments: Segment[];
+  participants: MeetingParticipantView[];
+  exportRecord: TranscriptRecord | null;
+  styles: AppStyles;
+  onCopy: (record: TranscriptRecord) => void;
+  onSaveTranscript: (record: TranscriptRecord) => void;
+  onFeedback: () => void;
+}) {
+  return (
+    <ScrollView contentContainerStyle={styles.mainScroll} keyboardShouldPersistTaps="handled">
+      <View style={{ width: "100%", maxWidth: 1180, alignSelf: "center", gap: 16 }}>
+        <View style={{ padding: 22, borderRadius: 22, backgroundColor: "#211B32", borderWidth: 1, borderColor: "#4B4262" }}>
+          <Text style={{ color: "#B9A7FF", fontSize: 9, fontWeight: "700", letterSpacing: 1.6 }}>LIVE SESSION</Text>
+          <Text style={{ color: "#F1ECFF", fontSize: 25, fontWeight: "700", marginTop: 7 }}>{title}</Text>
+          <Text style={{ color: "#B8B1C8", fontSize: 12, marginTop: 5 }}>Room {connection.room_code} · {connection.is_host ? "Organizer view" : "Attendee view"}</Text>
+          <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 9, marginTop: 18 }}>
+            <View style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, backgroundColor: "rgba(52,211,153,0.12)" }}><Text style={{ color: "#55D6A4", fontSize: 11, fontWeight: "700" }}>{active ? "● LIVE" : status.toUpperCase()}</Text></View>
+            <View style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, backgroundColor: "rgba(159,122,234,0.16)" }}><Text style={{ color: "#D1C0FF", fontSize: 11, fontWeight: "700" }}>{participants.length} connected</Text></View>
+            <View style={{ paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.06)" }}><Text style={{ color: "#C7C0D4", fontSize: 11 }}>⏱ {formatTime(duration)}</Text></View>
+          </View>
+        </View>
+
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 12 }}>
+          <View style={{ flex: 1, minWidth: 220, padding: 16, borderRadius: 17, backgroundColor: "#191620", borderWidth: 1, borderColor: "#302C38" }}>
+            <Text style={{ color: "#B9A7FF", fontSize: 10, fontWeight: "700", letterSpacing: 1.2 }}>ATTENDEES</Text>
+            {participants.length ? participants.map((participant) => <Text key={participant.identity} style={{ color: "#D8D2E2", fontSize: 12, marginTop: 9 }}>● {participant.name}</Text>) : <Text style={{ color: "#8F8A9E", fontSize: 12, marginTop: 9 }}>Waiting for attendees…</Text>}
+          </View>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 9, padding: 16, borderRadius: 17, backgroundColor: "#191620", borderWidth: 1, borderColor: "#302C38" }}>
+            <Pressable onPress={onFeedback} style={{ paddingHorizontal: 14, paddingVertical: 11, borderRadius: 11, backgroundColor: "#755BD0" }}><Text style={{ color: "white", fontSize: 11, fontWeight: "700" }}>★ Feedback</Text></Pressable>
+          </View>
+        </View>
+
+        <TranscriptPanel segments={segments} active={active} status={status} duration={duration} exportRecord={exportRecord} onCopy={onCopy} onSaveTranscript={onSaveTranscript} styles={styles} />
+      </View>
+    </ScrollView>
+  );
+}
+
 export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
   useFonts({
     DMSans_400Regular,
@@ -1312,6 +1369,23 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
         </ScrollView>
       ) : (
         <ScrollView key="new" contentContainerStyle={styles.mainScroll} keyboardShouldPersistTaps="handled">
+          {sessionType === "Meeting" && meetingConnection ? (
+            <MeetingRoomScreen
+              connection={meetingConnection}
+              title={meetingTitle || "Live session"}
+              active={active}
+              status={status}
+              duration={shownDuration}
+              segments={segments}
+              participants={meetingParticipants}
+              exportRecord={currentExportRecord}
+              styles={styles}
+              onCopy={(record) => void copyTranscript(record)}
+              onSaveTranscript={(record) => void saveTranscript(record)}
+              onFeedback={() => Alert.alert("Feedback", "Thank you. Your feedback option is ready for this live session.")}
+            />
+          ) : (
+            <>
           <View style={styles.pageIntro}>
             <Text style={styles.eyebrow}>NEW TRANSCRIPTION</Text>
             <TypewriterText text="Turn every voice into words." style={styles.heroTitle} />
@@ -1359,6 +1433,8 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
             {sessionType === "Meeting" && meetingConnection && meetingTitle ? <View style={{ gap: 3, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 14, borderWidth: 1, borderColor: "#8067CE", backgroundColor: "rgba(117,91,208,0.16)", marginBottom: 12 }}><Text style={{ color: "#B9A7FF", fontSize: 9, fontWeight: "700", letterSpacing: 1.4 }}>SESSION</Text><Text style={{ color: "#EEEAF9", fontSize: 16, fontWeight: "700" }}>{meetingTitle}</Text><Text style={{ color: "#B8B1C8", fontSize: 11 }}>Room {meetingConnection.room_code}</Text></View> : null}
             <TranscriptPanel segments={segments} interimText={interimText} interimLanguage={interimLanguage} active={active} status={status} processingStage={processingStage} duration={shownDuration} intensity={voiceIntensity} exportRecord={currentExportRecord} copied={copiedRecordId === currentRecordId} exportBusy={exporting?.id === currentRecordId ? exporting.kind : null} onCopy={(record) => void copyTranscript(record)} onSaveTranscript={(record) => void saveTranscript(record)} summarizing={summarizingRecordId === currentRecordId} summaryCopied={copiedSummaryRecordId === currentRecordId} onGenerateSummary={(record) => void generateSummary(record)} onCopySummary={(summary) => { if (currentRecordId) void copySummary(currentRecordId, summary); }} onSaveSummary={(record) => void saveSummary(record)} onUpdateRecord={(record, next) => void editTranscriptSegments(record, next)} onRenameSpeaker={(record, oldName, newName) => void renameSpeaker(record, oldName, newName)} onTranslate={(record, target) => void translateRecord(record, target)} translating={translatingRecordId === currentRecordId} styles={styles} />
           </View>
+            </>
+          )}
         </ScrollView>
       )}
 
