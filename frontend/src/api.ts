@@ -4,7 +4,8 @@ import { Platform } from "react-native";
 import type { Language, MeetingConnection, SessionInfo, SessionType, TranscriptRecord, TranscriptSummary } from "./types";
 
 
-export const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:8000/api";
+const runtimeEnv = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
+export const API_URL = runtimeEnv?.EXPO_PUBLIC_API_URL ?? "http://localhost:8000/api";
 export const WS_URL = API_URL.replace(/^http/, "ws") + "/live";
 export const HISTORY_WS_URL = API_URL.replace(/^http/, "ws") + "/history/events";
 

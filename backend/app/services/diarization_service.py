@@ -1,5 +1,6 @@
 import asyncio
 import subprocess
+import wave
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -34,35 +35,37 @@ def _load_pipeline() -> Any:
 def _decode_audio(path: str) -> dict[str, Any]:
     """Decode to mono 16 kHz in memory, bypassing TorchCodec on Windows."""
     import numpy as np
-    import torch
-    from imageio_ffmpeg import get_ffmpeg_exe
-
-    completed = subprocess.run(
-        [
-            get_ffmpeg_exe(),
-            "-v",
-            "error",
-            "-i",
-            str(Path(path).resolve()),
-            "-vn",
-            "-ac",
-            "1",
-            "-ar",
-            "16000",
-            "-f",
-            "f32le",
-            "pipe:1",
-        ],
-        check=True,
-        capture_output=True,
-    )
-    samples = np.frombuffer(completed.stdout, dtype="<f4").copy()
+    try:
+        from imageio_ffmpeg import get_ffmpeg_exe
+    except ModuleNotFoundError:
+        with wave.open(str(Path(path).resolve()), "rb") as source:
+            if source.getframerate() != 16_000 or source.getsampwidth() != 2:
+                raise RuntimeError("Audio decoder is unavailable for this format")
+            raw = np.frombuffer(source.readframes(source.getnframes()), dtype="<i2")
+            channels = max(1, source.getnchannels())
+            samples = raw.reshape(-1, channels).mean(axis=1).astype("<f4") / 32768.0
+    else:
+        completed = subprocess.run(
+            [
+                get_ffmpeg_exe(), "-v", "error", "-i", str(Path(path).resolve()),
+                "-vn", "-ac", "1", "-ar", "16000", "-f", "f32le", "pipe:1",
+            ],
+            check=True,
+            capture_output=True,
+        )
+        samples = np.frombuffer(completed.stdout, dtype="<f4").copy()
     if samples.size == 0:
         raise ValueError("Audio decoder produced no samples")
-    return {
-        "waveform": torch.from_numpy(samples).unsqueeze(0),
-        "sample_rate": 16_000,
-    }
+    try:
+        import torch
+    except ModuleNotFoundError:
+        # PyTorch is an optional diarization dependency. The decoder remains
+        # usable for validation and lightweight deployments; the pyannote
+        # pipeline itself still fails clearly if inference is requested.
+        waveform: Any = samples[None, :]
+    else:
+        waveform = torch.from_numpy(samples).unsqueeze(0)
+    return {"waveform": waveform, "sample_rate": 16_000}
 
 
 def _run_pipeline(path: str) -> list[TranscriptSegment]:
