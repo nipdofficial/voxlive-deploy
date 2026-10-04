@@ -317,7 +317,7 @@ export function SessionManagementScreen({ onOpenCreatedSession, isDark }: Sessio
             </Pressable>
           </View>
         )
-      )}
+      }
     </ScrollView>
   );
 }
