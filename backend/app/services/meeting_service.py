@@ -329,10 +329,10 @@ class MeetingSession:
                     pcm_wav_bytes(chunk),
                     "audio/wav",
                     self.language,
-                    model=settings.gemini_live_model,
+                    model=settings.gemini_batch_model,
                     audio_duration_seconds=len(chunk) / (SAMPLE_RATE * 2),
                     request_timeout_seconds=settings.gemini_live_timeout_seconds,
-                    translate_to=settings.target_language if settings.auto_translate else None,
+                    translate_to=settings.target_language,
                     verify_mixed_language=False,
                     use_structured_mixed_model=False,
                 )
@@ -465,9 +465,7 @@ class MeetingSession:
                     model=settings.gemini_batch_model,
                     include_speakers=state.shared_mic,
                     audio_duration_seconds=state.duration,
-                    translate_to=settings.target_language
-                    if settings.auto_translate
-                    else None,
+                    translate_to=settings.target_language,
                 )
             if state.shared_mic and final:
                 self.record.processing_stage = ProcessingStage.diarizing

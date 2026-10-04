@@ -238,6 +238,11 @@ class GeminiService:
             )
         timeout_seconds = request_timeout_seconds or self.settings.gemini_batch_timeout_seconds
         selected_model = model or self.settings.gemini_batch_model
+        if "live-preview" in selected_model.lower():
+            # This method uses generateContent. Live-preview model IDs only
+            # work with Gemini's persistent Live API and otherwise return
+            # INVALID_ARGUMENT in production.
+            selected_model = self.settings.gemini_batch_model
         # The specialised transcribe models can return Latin transliterations
         # for short Sinhala/Tamil clips when mixed-language detection is
         # requested. Use the multimodal structured model for mixed mode so it

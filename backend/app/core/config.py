@@ -22,7 +22,10 @@ class Settings(BaseSettings):
     gcp_project: str | None = None
     # Live transcription uses Gemini's persistent Live API WebSocket.
     gcp_location: str = "global"
-    gemini_live_model: str = "gemini-3.5-transcribe-live-preview"
+    # The current transcription service uses Gemini generateContent for
+    # overlapping live previews. The live-preview model is reserved for a
+    # persistent Live API session and is not valid for generateContent.
+    gemini_live_model: str = "gemini-3.5-transcribe-preview"
     gemini_batch_model: str = "gemini-3.5-transcribe-preview"
     gemini_text_model: str = "gemini-3.5-flash"
     auto_translate: bool = True
