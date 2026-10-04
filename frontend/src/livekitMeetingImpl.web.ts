@@ -30,7 +30,7 @@ export const connectMeeting: ConnectMeeting = async (url, token, callbacks, opti
     }
   });
   room.on(RoomEvent.TrackSubscribed, (track) => {
-    if (track.kind !== Track.Kind.Audio) return;
+    if (track.kind !== Track.Kind.Audio || options.subscribeAudio === false) return;
     const element = track.attach();
     element.dataset.livekitMeetingAudio = "true";
     document.body.appendChild(element);

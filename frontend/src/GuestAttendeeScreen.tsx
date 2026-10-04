@@ -97,7 +97,7 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
           return duplicate ? current : [...current, labeledSegment].sort((left, right) => left.start - right.start);
         }),
         onError: (caught) => setError(caught.message),
-      }, { publishMicrophone: false });
+      }, { publishMicrophone: false, subscribeAudio: false });
       setClient(nextClient);
       setStartedAt(Date.now());
       setStatus("connected");

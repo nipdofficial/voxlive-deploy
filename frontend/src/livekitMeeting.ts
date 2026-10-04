@@ -9,7 +9,11 @@ export type MeetingCallbacks = {
   onError: (error: Error) => void;
 };
 
-export type MeetingConnectOptions = { publishMicrophone: boolean };
+export type MeetingConnectOptions = {
+  publishMicrophone: boolean;
+  /** Attendees receive transcript data only and must not play organizer audio. */
+  subscribeAudio?: boolean;
+};
 
 export interface MeetingClient {
   disconnect: () => Promise<void>;

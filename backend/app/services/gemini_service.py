@@ -227,7 +227,7 @@ class GeminiService:
             f"{speaker_guidance} "
             "Use seconds relative to the start of this audio clip for start and end."
         )
-        if translate_to:
+        if translate_to and not _is_transcription_model(model or self.settings.gemini_batch_model):
             prompt += (
                 f" For every segment, translated_text is REQUIRED and must be written in "
                 f"{translate_to.value}. "
@@ -257,10 +257,7 @@ class GeminiService:
                 "or commentary. If there is no intelligible speech, return EMPTY."
             )
             if translate_to:
-                prompt += (
-                    f" Translate the speech into {translate_to.value} before returning it. "
-                    "Return only the translated text, not the source transcript."
-                )
+                prompt += " Return only the source transcript text; translation is added separately."
         for attempt in range(self.settings.gemini_max_retries + 1):
             try:
                 response = await asyncio.wait_for(
@@ -349,6 +346,16 @@ class GeminiService:
                     use_structured_mixed_model=use_structured_mixed_model,
                     _retry_language=False,
                 )
+        # Keep the spoken source in `text` and add Tamil separately. This is
+        # especially important for real-time meetings: attendees need the
+        # translated line while organizers still need the original words and
+        # language detection metadata.
+        if translate_to and normalized and _is_transcription_model(selected_model):
+            translations = await self.translate_segments(normalized, translate_to)
+            normalized = [
+                item.model_copy(update={"translated_text": translated})
+                for item, translated in zip(normalized, translations, strict=True)
+            ]
         if timestamp_offset:
             normalized = [
                 item.model_copy(

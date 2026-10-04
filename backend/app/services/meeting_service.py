@@ -350,6 +350,8 @@ class MeetingSession:
     async def _broadcast_segment(self, segment: TranscriptSegment) -> None:
         if not self.room:
             return
+        if not segment.speaker:
+            segment = segment.model_copy(update={"speaker": "Speaker"})
         payload = json.dumps(
             {"type": "transcript", "segment": segment.model_dump(mode="json")},
             ensure_ascii=False,
