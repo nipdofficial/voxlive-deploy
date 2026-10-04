@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -28,6 +28,7 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
   const [name, setName] = useState("");
   const [segments, setSegments] = useState<Segment[]>([]);
   const [participants, setParticipants] = useState<MeetingParticipantView[]>([]);
+  const participantsRef = useRef<MeetingParticipantView[]>([]);
   const [client, setClient] = useState<MeetingClient | null>(null);
   const [status, setStatus] = useState("loading");
   const [error, setError] = useState<string | null>(null);
@@ -63,10 +64,18 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
       const { connectMeeting } = await import("helascribe-meeting-connector");
       const nextClient = await connectMeeting(connection.livekit_url, connection.token, {
         onConnectionChange: setStatus,
-        onParticipantsChange: setParticipants,
+        onParticipantsChange: (nextParticipants) => {
+          participantsRef.current = nextParticipants;
+          setParticipants(nextParticipants);
+        },
         onSegment: (segment) => setSegments((current) => {
-          const duplicate = current.some((item) => item.participant_identity === segment.participant_identity && item.start === segment.start && item.end === segment.end && item.text === segment.text);
-          return duplicate ? current : [...current, segment].sort((left, right) => left.start - right.start);
+          const speaker = segment.speaker
+            || participantsRef.current.find((participant) => participant.identity === segment.participant_identity)?.name
+            || segment.participant_identity
+            || "Speaker";
+          const labeledSegment = { ...segment, speaker };
+          const duplicate = current.some((item) => item.participant_identity === labeledSegment.participant_identity && item.start === labeledSegment.start && item.end === labeledSegment.end && item.text === labeledSegment.text);
+          return duplicate ? current : [...current, labeledSegment].sort((left, right) => left.start - right.start);
         }),
         onError: (caught) => setError(caught.message),
       }, { publishMicrophone: false });
@@ -80,7 +89,7 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
   };
 
   const download = async () => {
-    const text = segments.map((segment) => `${segment.speaker ? `${segment.speaker}: ` : ""}${segment.text}`).join("\n");
+    const text = segments.map((segment) => `${segment.speaker || "Speaker"}: ${segment.translated_text || segment.text}`).join("\n");
     if (!text.trim()) return;
     const filename = `voxlive_${roomCode}.txt`;
     if (Platform.OS === "web") {
