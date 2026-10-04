@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ActivityIndicator, View, useColorScheme } from "react-native";
+import { ActivityIndicator, Platform, View, useColorScheme } from "react-native";
 import {
   DMSans_400Regular,
   DMSans_500Medium,
@@ -14,6 +14,7 @@ import AuthScreen from "./AuthScreen";
 import { getMe, logout, UnauthorizedError, type AuthSession } from "./authApi";
 import { clearSession, loadSession, saveSession } from "./authStorage";
 import { authPalette } from "./authTheme";
+import GuestAttendeeScreen from "./GuestAttendeeScreen";
 
 // Keeps the admin dashboard's "Online now" accurate while a user has the app open.
 const HEARTBEAT_MS = 60_000;
@@ -28,6 +29,9 @@ export default function Root() {
   const [session, setSession] = useState<AuthSession | null>(() => loadSession());
   const [verifying, setVerifying] = useState(session !== null);
   const [notice, setNotice] = useState<string | null>(null);
+  const guestRoomCode = Platform.OS === "web" && typeof window !== "undefined"
+    ? new URLSearchParams(window.location.search).get("session")?.trim().toUpperCase() ?? null
+    : null;
 
   const endLocalSession = useCallback((message: string | null) => {
     clearSession();
@@ -81,6 +85,10 @@ export default function Root() {
       </View>
     );
   }
+
+  // QR attendee links are public meeting links. They must bypass account
+  // authentication and show only the guest session experience.
+  if (guestRoomCode) return <GuestAttendeeScreen roomCode={guestRoomCode} />;
 
   if (!session) {
     return (
