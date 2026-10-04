@@ -276,7 +276,8 @@ async def _finalize_live(record: TranscriptRecord, path: Path) -> None:
                     warning = f"Speaker diarization unavailable: {exc}"
                 record.error = f"{record.error}; {warning}" if record.error else warning
         record.transcript = "\n".join(
-            f"{item.speaker}: {item.text}" if item.speaker else item.text
+            (f"{item.speaker}: " if item.speaker else "") + item.text
+            + (f"\nTranslation: {item.translated_text}" if item.translated_text and item.translated_text != item.text else "")
             for item in record.segments
         )
         record.status = JobStatus.completed

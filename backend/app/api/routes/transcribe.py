@@ -182,7 +182,8 @@ async def _process(record: TranscriptRecord, path: Path, mime_type: str) -> None
         if record.segments and record.duration_seconds is None:
             record.duration_seconds = max(item.end for item in record.segments)
         record.transcript = "\n".join(
-            f"{segment.speaker}: {segment.text}" if segment.speaker else segment.text
+            (f"{segment.speaker}: " if segment.speaker else "") + segment.text
+            + (f"\nTranslation: {segment.translated_text}" if segment.translated_text and segment.translated_text != segment.text else "")
             for segment in record.segments
         )
         record.status = JobStatus.completed

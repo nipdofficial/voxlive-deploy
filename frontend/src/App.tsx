@@ -108,12 +108,16 @@ function mergeTranscriptRecords(current: TranscriptRecord[], updates: Transcript
 }
 
 function transcriptText(record: TranscriptRecord) {
-  const savedTranscript = record.transcript.trim();
-  if (savedTranscript) return savedTranscript;
-  return record.segments
-    .map((segment) => `${segment.speaker ? `${segment.speaker}: ` : ""}${segment.text}`)
-    .join("\n")
-    .trim();
+  if (record.segments.length) {
+    return record.segments.map((segment) => {
+      const speaker = `${segment.speaker || "Speaker"}: `;
+      const translation = segment.translated_text && segment.translated_text !== segment.text
+        ? `\nTranslation: ${segment.translated_text}`
+        : "";
+      return `${speaker}${segment.text}${translation}`;
+    }).join("\n").trim();
+  }
+  return record.transcript.trim();
 }
 
 function summaryText(summary: TranscriptSummary) {
@@ -1271,23 +1275,6 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
       {tab === "sessions" ? (
         <SessionManagementScreen
           isDark={isDark}
-          onJoinSession={async (code, name, title) => {
-            setMeetingCode(code);
-            setMeetingName(name);
-            if (title) setMeetingTitle(title);
-            setSessionType("Meeting");
-            setTab("new");
-            try {
-              setBusy(true);
-              setStatus("joining");
-              const connection = await joinMeeting(code, name, diarization);
-              await connectToMeeting(connection, title);
-            } catch (err) {
-              setMeetingConnection(null);
-              setBusy(false);
-              Alert.alert("Join Session", err instanceof Error ? err.message : "Could not join session");
-            }
-          }}
           onOpenCreatedSession={async (connection, title) => {
             setMeetingName(connection.display_name);
             setMeetingTitle(title);

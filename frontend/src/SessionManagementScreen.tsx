@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -13,21 +14,20 @@ import {
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
+import * as Sharing from "expo-sharing";
+import { File, Paths } from "expo-file-system";
 
-import { createMeeting, getSessionInfo, getSessionQrUrl } from "./api";
-import type { Language, MeetingConnection, SessionInfo } from "./types";
+import { createMeeting, getHistory, getSessionInfo, getSessionQrUrl } from "./api";
+import type { Language, MeetingConnection, SessionInfo, TranscriptRecord } from "./types";
 
 interface SessionManagementScreenProps {
-  onJoinSession: (roomCode: string, displayName: string, title?: string) => void;
   onOpenCreatedSession: (connection: MeetingConnection, title: string) => void;
   isDark: boolean;
 }
 
-export function SessionManagementScreen({ onJoinSession, onOpenCreatedSession, isDark }: SessionManagementScreenProps) {
+export function SessionManagementScreen({ onOpenCreatedSession, isDark }: SessionManagementScreenProps) {
   const { width } = useWindowDimensions();
   const isWide = width >= 800;
-
-  const [mode, setMode] = useState<"create" | "join">("create");
 
   // Create form state
   const [organizerName, setOrganizerName] = useState("");
@@ -48,20 +48,29 @@ export function SessionManagementScreen({ onJoinSession, onOpenCreatedSession, i
   const [copiedCode, setCopiedCode] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
   const [refreshingInfo, setRefreshingInfo] = useState(false);
+  const [pastSessions, setPastSessions] = useState<TranscriptRecord[]>([]);
 
-  // Join form state
-  const [participantName, setParticipantName] = useState("");
-  const [joinCode, setJoinCode] = useState("");
-  const [joining, setJoining] = useState(false);
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const code = new URLSearchParams(window.location.search).get("session")?.trim().toUpperCase();
-    if (code) {
-      setMode("join");
-      setJoinCode(code);
+  useEffect(() => { void getHistory().then(setPastSessions).catch(() => undefined); }, [activeSession?.info?.is_active]);
+
+  const downloadTranscript = async (record: TranscriptRecord) => {
+    const contents = record.segments.map((segment) => `${segment.speaker || "Speaker"}: ${segment.translated_text || segment.text}`).join("\n");
+    if (!contents.trim()) return;
+    const filename = `${record.title.replace(/[^a-z0-9]+/gi, "_") || "voxlive_session"}.txt`;
+    if (Platform.OS === "web") {
+      const url = URL.createObjectURL(new Blob([contents], { type: "text/plain;charset=utf-8" }));
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = filename;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      return;
     }
-  }, []);
+    const file = new File(Paths.cache, filename);
+    file.create({ overwrite: true });
+    file.write(contents);
+    if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(file.uri, { dialogTitle: "Save translated transcript", mimeType: "text/plain", UTI: "public.plain-text" });
+  };
 
   const handleCreateSession = async () => {
     if (!organizerName.trim()) {
@@ -139,40 +148,8 @@ export function SessionManagementScreen({ onJoinSession, onOpenCreatedSession, i
     setTimeout(() => setCopiedLink(false), 2000);
   };
 
-  const handleJoinSubmit = async () => {
-    if (!participantName.trim()) {
-      Alert.alert("Required", "Please enter your display name.");
-      return;
-    }
-    if (!joinCode.trim()) {
-      Alert.alert("Required", "Please enter the session QR code or room code.");
-      return;
-    }
-
-    setJoining(true);
-    try {
-      // Validate session capacity beforehand if possible
-      const cleanCode = joinCode.trim().toUpperCase();
-      const info = await getSessionInfo(cleanCode).catch(() => null);
-
-      if (info && info.current_participants >= info.max_participants) {
-        Alert.alert(
-          "Session Full",
-          `This session has reached its limit of ${info.max_participants} participants.`,
-        );
-        setJoining(false);
-        return;
-      }
-
-      onJoinSession(cleanCode, participantName.trim(), info?.title);
-    } catch (err) {
-      Alert.alert("Join Error", err instanceof Error ? err.message : "Could not join session");
-    } finally {
-      setJoining(false);
-    }
-  };
-
   const styles = getStyles(isDark);
+  const completedSessions = pastSessions.filter((record) => record.status === "completed" || record.status === "failed");
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -184,30 +161,18 @@ export function SessionManagementScreen({ onJoinSession, onOpenCreatedSession, i
         </Text>
       </View>
 
-      {/* Mode Switcher */}
-      <View style={styles.tabContainer}>
-        <Pressable
-          style={[styles.tabButton, mode === "create" && styles.tabButtonActive]}
-          onPress={() => setMode("create")}
-        >
-          <Feather name="plus-circle" size={18} color={mode === "create" ? "#A78BFA" : "#8F8A9E"} />
-          <Text style={[styles.tabText, mode === "create" && styles.tabTextActive]}>
-            Organizer (Create)
-          </Text>
-        </Pressable>
-        <Pressable
-          style={[styles.tabButton, mode === "join" && styles.tabButtonActive]}
-          onPress={() => setMode("join")}
-        >
-          <Feather name="grid" size={18} color={mode === "join" ? "#A78BFA" : "#8F8A9E"} />
-          <Text style={[styles.tabText, mode === "join" && styles.tabTextActive]}>
-            Participant (Join)
-          </Text>
-        </Pressable>
+      <View style={[styles.card, { marginBottom: 22 }]}>
+        <Text style={styles.cardHeader}>Session control</Text>
+        <Text style={styles.hint}>Manage ongoing sessions and download saved transcripts.</Text>
+        <Text style={[styles.label, { marginTop: 18 }]}>ONGOING SESSIONS</Text>
+        {activeSession?.info?.is_active ? <View style={styles.sessionListRow}><View style={{ flex: 1 }}><Text style={styles.sessionTitle}>{activeSession.title}</Text><Text style={styles.sessionCodeLabel}>Room {activeSession.code} · {activeSession.info.current_participants} connected</Text></View><Text style={styles.liveStatus}>LIVE</Text></View> : <Text style={styles.emptySession}>No ongoing sessions</Text>}
+        <Text style={[styles.label, { marginTop: 18 }]}>UPCOMING SESSIONS</Text>
+        <Text style={styles.emptySession}>No upcoming sessions</Text>
+        <Text style={[styles.label, { marginTop: 18 }]}>PAST SESSIONS</Text>
+        {completedSessions.length ? completedSessions.map((record) => <View key={record.id} style={styles.sessionListRow}><View style={{ flex: 1 }}><Text style={styles.sessionTitle}>{record.title}</Text><Text style={styles.sessionCodeLabel}>{record.language} · {record.status} · {new Date(record.created_at).toLocaleDateString()}</Text></View><Pressable onPress={() => void downloadTranscript(record)} disabled={!record.segments.length} style={[styles.downloadButton, !record.segments.length && { opacity: 0.45 }]}><Feather name="download" size={15} color="#A78BFA" /><Text style={styles.downloadText}>TXT</Text></Pressable></View>) : <Text style={styles.emptySession}>No saved sessions yet</Text>}
       </View>
 
-      {mode === "create" ? (
-        activeSession ? (
+      {activeSession ? (
           /* Active Created Session View */
           <View style={[styles.card, isWide && styles.cardWide]}>
             <View style={styles.sessionHeaderRow}>
@@ -352,52 +317,6 @@ export function SessionManagementScreen({ onJoinSession, onOpenCreatedSession, i
             </Pressable>
           </View>
         )
-      ) : (
-        /* Join Session Form */
-        <View style={[styles.card, isWide && styles.cardWide]}>
-          <Text style={styles.cardHeader}>Join Event Session</Text>
-
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Your Name</Text>
-            <TextInput
-              style={styles.input}
-              value={participantName}
-              onChangeText={setParticipantName}
-              placeholder="e.g. Alice"
-              placeholderTextColor="#625E70"
-            />
-          </View>
-
-          <View style={styles.fieldGroup}>
-            <Text style={styles.label}>Session Code (or from QR)</Text>
-            <TextInput
-              style={styles.input}
-              value={joinCode}
-              onChangeText={setJoinCode}
-              placeholder="e.g. ABC12345"
-              autoCapitalize="characters"
-              placeholderTextColor="#625E70"
-            />
-            <Text style={styles.hint}>
-              Enter the session room code generated by the event organizer.
-            </Text>
-          </View>
-
-          <Pressable
-            style={styles.primaryButton}
-            onPress={handleJoinSubmit}
-            disabled={joining}
-          >
-            {joining ? (
-              <ActivityIndicator color="white" />
-            ) : (
-              <>
-                <Feather name="log-in" size={18} color="white" />
-                <Text style={styles.primaryButtonText}>Join Session</Text>
-              </>
-            )}
-          </Pressable>
-        </View>
       )}
     </ScrollView>
   );
@@ -617,5 +536,38 @@ const getStyles = (isDark: boolean) =>
     statLabel: {
       fontSize: 12,
       color: isDark ? "#7F7A8C" : "#8F8A9E",
+    },
+    sessionListRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      padding: 12,
+      borderRadius: 10,
+      marginTop: 8,
+      backgroundColor: isDark ? "#120E1C" : "#F5F3F9",
+    },
+    emptySession: {
+      color: isDark ? "#7F7A8C" : "#8F8A9E",
+      fontSize: 12,
+      marginTop: 8,
+    },
+    liveStatus: {
+      color: "#55D6A4",
+      fontSize: 11,
+      fontWeight: "700",
+    },
+    downloadButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 5,
+      paddingHorizontal: 10,
+      paddingVertical: 8,
+      borderRadius: 8,
+      backgroundColor: isDark ? "rgba(167,139,250,0.12)" : "rgba(109,92,231,0.08)",
+    },
+    downloadText: {
+      color: "#A78BFA",
+      fontSize: 10,
+      fontWeight: "700",
     },
   });

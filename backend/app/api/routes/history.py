@@ -136,7 +136,8 @@ async def edit_history(record_id: str, body: TranscriptEdit) -> TranscriptRecord
     if body.segments is not None:
         record.segments = sorted(body.segments, key=lambda item: (item.start, item.end))
         record.transcript = "\n".join(
-            f"{item.speaker}: {item.text}" if item.speaker else item.text
+            (f"{item.speaker}: " if item.speaker else "") + item.text
+            + (f"\nTranslation: {item.translated_text}" if item.translated_text and item.translated_text != item.text else "")
             for item in record.segments
         )
         record.summary = None
@@ -157,7 +158,8 @@ async def rename_speaker(record_id: str, body: SpeakerRename) -> TranscriptRecor
     if not changed:
         raise HTTPException(status_code=404, detail="Speaker label not found")
     record.transcript = "\n".join(
-        f"{item.speaker}: {item.text}" if item.speaker else item.text
+        (f"{item.speaker}: " if item.speaker else "") + item.text
+        + (f"\nTranslation: {item.translated_text}" if item.translated_text and item.translated_text != item.text else "")
         for item in record.segments
     )
     record.summary = None

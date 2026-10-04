@@ -401,7 +401,8 @@ class MeetingSession:
 
         self.record.segments = merge_room_segments(list(self.states.values()))
         self.record.transcript = "\n".join(
-            f"{item.speaker}: {item.text}" if item.speaker else item.text
+            (f"{item.speaker}: " if item.speaker else "") + item.text
+            + (f"\nTranslation: {item.translated_text}" if item.translated_text and item.translated_text != item.text else "")
             for item in self.record.segments
         )
         self.record.duration_seconds = max(
