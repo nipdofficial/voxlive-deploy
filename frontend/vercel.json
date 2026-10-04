@@ -1,4 +1,5 @@
 {
+  "installCommand": "npm install --legacy-peer-deps --no-audit --no-fund",
   "buildCommand": "npm run build:web",
   "outputDirectory": "dist",
   "framework": null

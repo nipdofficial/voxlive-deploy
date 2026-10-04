@@ -1,0 +1,6 @@
+{
+  "installCommand": "npm --prefix frontend install --legacy-peer-deps --no-audit --no-fund",
+  "buildCommand": "npm --prefix frontend run build:web",
+  "outputDirectory": "frontend/dist",
+  "framework": null
+}
