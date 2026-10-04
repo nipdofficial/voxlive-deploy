@@ -471,8 +471,7 @@ function TranscriptPanel({
             <Text style={styles.segmentTime}>{formatTime(segment.start)}</Text>
             <View style={[styles.speakerLine, { backgroundColor: speakerColor(segment.speaker) }]} />
             <View style={styles.segmentBody}>
-              {segment.speaker || segment.detected_language ? (
-                <View style={styles.segmentMeta}>
+              <View style={styles.segmentMeta}>
                   {segment.speaker ? (
                     <Pressable onLongPress={() => {
                       if (!exportRecord || !onRenameSpeaker) return;
@@ -487,11 +486,10 @@ function TranscriptPanel({
                     }}>
                       <Text style={[styles.speakerName, { color: speakerColor(segment.speaker) }]}>{segment.speaker}</Text>
                     </Pressable>
-                  ) : null}
+                  ) : <Text style={[styles.speakerName, { color: speakerColor(null) }]}>Speaker</Text>}
                   {segment.detected_language ? <Text style={styles.languageTag}>{segment.detected_language}</Text> : null}
                   {segment.uncertain ? <Text style={styles.uncertainTag}>CHECK</Text> : null}
-                </View>
-              ) : null}
+              </View>
               {editingIndex === index ? (
                 <View style={styles.segmentEditRow}>
                   <TextInput value={editText} onChangeText={setEditText} multiline autoFocus style={styles.segmentEditInput} />
@@ -539,6 +537,7 @@ function MeetingRoomScreen({
   onCopy,
   onSaveTranscript,
   onFeedback,
+  onEnd,
 }: {
   connection: MeetingConnection;
   title: string;
@@ -552,6 +551,7 @@ function MeetingRoomScreen({
   onCopy: (record: TranscriptRecord) => void;
   onSaveTranscript: (record: TranscriptRecord) => void;
   onFeedback: () => void;
+  onEnd: () => void;
 }) {
   return (
     <ScrollView contentContainerStyle={styles.mainScroll} keyboardShouldPersistTaps="handled">
@@ -574,6 +574,7 @@ function MeetingRoomScreen({
           </View>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 9, padding: 16, borderRadius: 17, backgroundColor: "#191620", borderWidth: 1, borderColor: "#302C38" }}>
             <Pressable onPress={onFeedback} style={{ paddingHorizontal: 14, paddingVertical: 11, borderRadius: 11, backgroundColor: "#755BD0" }}><Text style={{ color: "white", fontSize: 11, fontWeight: "700" }}>★ Feedback</Text></Pressable>
+            {connection.is_host && active ? <Pressable onPress={onEnd} style={{ paddingHorizontal: 14, paddingVertical: 11, borderRadius: 11, backgroundColor: "#D94B68" }}><Text style={{ color: "white", fontSize: 11, fontWeight: "700" }}>End session</Text></Pressable> : null}
           </View>
         </View>
 
@@ -1090,6 +1091,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
     setStatus(connection.is_host ? "finalizing meeting" : "left meeting");
     if (connection.is_host && connection.host_secret) {
       const result = await endMeeting(connection.room_code, connection.host_secret);
+      setCurrentRecordId(result.id);
       trackJob(result.id);
       setProcessingStage("saving_audio");
     }
@@ -1369,7 +1371,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
         </ScrollView>
       ) : (
         <ScrollView key="new" contentContainerStyle={styles.mainScroll} keyboardShouldPersistTaps="handled">
-          {sessionType === "Meeting" && meetingConnection ? (
+          {sessionType === "Meeting" && meetingConnection && !meetingConnection.is_host ? (
             <MeetingRoomScreen
               connection={meetingConnection}
               title={meetingTitle || "Live session"}
@@ -1383,9 +1385,20 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
               onCopy={(record) => void copyTranscript(record)}
               onSaveTranscript={(record) => void saveTranscript(record)}
               onFeedback={() => Alert.alert("Feedback", "Thank you. Your feedback option is ready for this live session.")}
+              onEnd={() => void stopMeeting()}
             />
           ) : (
             <>
+          {sessionType === "Meeting" && meetingConnection?.is_host ? (
+            <View style={{ width: "100%", maxWidth: 1180, alignSelf: "center", padding: 18, marginBottom: 18, borderRadius: 18, backgroundColor: "#211B32", borderWidth: 1, borderColor: "#4B4262" }}>
+              <Text style={{ color: "#B9A7FF", fontSize: 9, fontWeight: "700", letterSpacing: 1.4 }}>LIVE SESSION</Text>
+              <Text style={{ color: "#F1ECFF", fontSize: 22, fontWeight: "700", marginTop: 6 }}>{meetingTitle || "Live session"}</Text>
+              <Text style={{ color: "#B8B1C8", fontSize: 12, marginTop: 4 }}>Room {meetingConnection.room_code} · Organizer view · {meetingParticipants.length} connected</Text>
+              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 }}>
+                {meetingParticipants.map((participant) => <View key={participant.identity} style={{ paddingHorizontal: 10, paddingVertical: 7, borderRadius: 10, backgroundColor: "rgba(159,122,234,0.16)" }}><Text style={{ color: "#D1C0FF", fontSize: 11 }}>{participant.name}</Text></View>)}
+              </View>
+            </View>
+          ) : null}
           <View style={styles.pageIntro}>
             <Text style={styles.eyebrow}>NEW TRANSCRIPTION</Text>
             <TypewriterText text="Turn every voice into words." style={styles.heroTitle} />

@@ -11,6 +11,7 @@ export type MeetingCallbacks = {
 
 export interface MeetingClient {
   disconnect: () => Promise<void>;
+  setMicrophoneEnabled: (enabled: boolean) => Promise<void>;
 }
 
 export type ConnectMeeting = (

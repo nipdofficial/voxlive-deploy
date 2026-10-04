@@ -37,6 +37,9 @@ export const connectMeeting: ConnectMeeting = async (url, token, callbacks) => {
   callbacks.onConnectionChange("connected");
   updateParticipants();
   return {
+    setMicrophoneEnabled: async (enabled: boolean) => {
+      await room.localParticipant.setMicrophoneEnabled(enabled);
+    },
     disconnect: async () => {
       await room.localParticipant.setMicrophoneEnabled(false);
       await room.disconnect();
