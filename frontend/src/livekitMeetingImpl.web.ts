@@ -1,4 +1,4 @@
-import { Room, RoomEvent, Track } from "livekit-client";
+import { createLocalAudioTrack, Room, RoomEvent, Track } from "livekit-client";
 import type { ConnectMeeting, MeetingParticipantView } from "./livekitMeeting";
 
 export const connectMeeting: ConnectMeeting = async (url, token, callbacks, options) => {
@@ -53,12 +53,30 @@ export const connectMeeting: ConnectMeeting = async (url, token, callbacks, opti
   await room.connect(url, token);
   await room.startAudio();
   try {
-    await room.localParticipant.setMicrophoneEnabled(options.publishMicrophone);
+    if (options.publishMicrophone) {
+      const microphoneTrack = await createLocalAudioTrack({
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      });
+      await room.localParticipant.publishTrack(microphoneTrack, {
+        source: Track.Source.Microphone,
+      });
+    } else {
+      await room.localParticipant.setMicrophoneEnabled(false);
+    }
     if (options.publishMicrophone && ![...room.localParticipant.trackPublications.values()].some((publication) => publication.kind === Track.Kind.Audio)) {
       // A permission prompt can race the first LiveKit publication on some
       // browsers. Retry once before declaring the organizer connected.
       await room.localParticipant.setMicrophoneEnabled(false);
-      await room.localParticipant.setMicrophoneEnabled(true);
+      const retryTrack = await createLocalAudioTrack({
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true,
+      });
+      await room.localParticipant.publishTrack(retryTrack, {
+        source: Track.Source.Microphone,
+      });
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : "Microphone permission or publishing failed";
