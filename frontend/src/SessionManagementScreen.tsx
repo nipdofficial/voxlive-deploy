@@ -154,11 +154,18 @@ export function SessionManagementScreen({ onOpenCreatedSession, isDark }: Sessio
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.eyebrow}>SESSION MANAGEMENT</Text>
-        <Text style={styles.title}>Session Control Center</Text>
+        <View style={styles.headerIcon}><Feather name="calendar" size={20} color="#CDBDFF" /></View>
+        <Text style={styles.eyebrow}>WORKSPACE / SESSIONS</Text>
+        <Text style={styles.title}>Session management</Text>
         <Text style={styles.subtitle}>
-          Create sessions, monitor ongoing events, and download translated transcripts. Attendees join through QR access.
+          Create, monitor, and manage your live translation sessions from one place.
         </Text>
+      </View>
+
+      <View style={styles.overviewGrid}>
+        <View style={styles.overviewCard}><View style={[styles.overviewIcon, { backgroundColor: "rgba(85,214,164,0.13)" }]}><Feather name="radio" size={16} color="#55D6A4" /></View><View><Text style={styles.overviewValue}>{activeSession?.info?.is_active ? "1" : "0"}</Text><Text style={styles.overviewLabel}>Live now</Text></View></View>
+        <View style={styles.overviewCard}><View style={[styles.overviewIcon, { backgroundColor: "rgba(167,139,250,0.15)" }]}><Feather name="archive" size={16} color="#A78BFA" /></View><View><Text style={styles.overviewValue}>{completedSessions.length}</Text><Text style={styles.overviewLabel}>Saved sessions</Text></View></View>
+        <View style={styles.overviewCard}><View style={[styles.overviewIcon, { backgroundColor: "rgba(243,201,105,0.13)" }]}><Feather name="users" size={16} color="#F3C969" /></View><View><Text style={styles.overviewValue}>{activeSession?.info?.current_participants ?? 0}</Text><Text style={styles.overviewLabel}>Attendees online</Text></View></View>
       </View>
 
       {activeSession ? (
@@ -308,15 +315,14 @@ export function SessionManagementScreen({ onOpenCreatedSession, isDark }: Sessio
         )
       }
 
-      <View style={[styles.card, { marginTop: 22 }]}>
-        <Text style={styles.cardHeader}>Session control</Text>
-        <Text style={styles.hint}>Manage ongoing events and download saved transcripts.</Text>
-        <Text style={[styles.label, { marginTop: 18 }]}>ONGOING SESSIONS</Text>
-        {activeSession?.info?.is_active ? <View style={styles.sessionListRow}><View style={{ flex: 1 }}><Text style={styles.sessionTitle}>{activeSession.title}</Text><Text style={styles.sessionCodeLabel}>Room {activeSession.code} · {activeSession.info.current_participants} connected</Text></View><Text style={styles.liveStatus}>LIVE</Text></View> : <Text style={styles.emptySession}>No ongoing sessions</Text>}
-        <Text style={[styles.label, { marginTop: 18 }]}>UPCOMING SESSIONS</Text>
-        <Text style={styles.emptySession}>No upcoming sessions</Text>
-        <Text style={[styles.label, { marginTop: 18 }]}>PAST SESSIONS</Text>
-        {completedSessions.length ? completedSessions.map((record) => <View key={record.id} style={styles.sessionListRow}><View style={{ flex: 1 }}><Text style={styles.sessionTitle}>{record.title}</Text><Text style={styles.sessionCodeLabel}>{record.language} · {record.status} · {new Date(record.created_at).toLocaleDateString()}</Text></View><Pressable onPress={() => void downloadTranscript(record)} disabled={!record.segments.length} style={[styles.downloadButton, !record.segments.length && { opacity: 0.45 }]}><Feather name="download" size={15} color="#A78BFA" /><Text style={styles.downloadText}>TXT</Text></Pressable></View>) : <Text style={styles.emptySession}>No saved sessions yet</Text>}
+      <View style={[styles.card, styles.controlCard]}>
+        <View style={styles.controlHeader}><View><Text style={styles.cardHeader}>Your sessions</Text><Text style={styles.hint}>Monitor live rooms and access completed transcripts.</Text></View><View style={styles.allSessionsBadge}><Feather name="layers" size={13} color="#CDBDFF" /><Text style={styles.allSessionsText}>{completedSessions.length + (activeSession ? 1 : 0)} total</Text></View></View>
+        <View style={styles.sectionHeading}><View style={styles.sectionDot} /><Text style={styles.sectionTitle}>LIVE NOW</Text></View>
+        {activeSession?.info?.is_active ? <View style={[styles.sessionListRow, styles.liveRow]}><View style={styles.sessionRowIcon}><Feather name="radio" size={16} color="#55D6A4" /></View><View style={{ flex: 1 }}><Text style={styles.sessionTitle}>{activeSession.title}</Text><Text style={styles.sessionCodeLabel}>Room {activeSession.code} · {activeSession.info.current_participants} connected</Text></View><View style={styles.livePill}><View style={styles.livePillDot} /><Text style={styles.livePillText}>LIVE</Text></View></View> : <View style={styles.emptyState}><Feather name="radio" size={18} color="#70697D" /><Text style={styles.emptySession}>No live sessions</Text></View>}
+        <View style={[styles.sectionHeading, { marginTop: 24 }]}><View style={[styles.sectionDot, { backgroundColor: "#A78BFA" }]} /><Text style={styles.sectionTitle}>UPCOMING</Text></View>
+        <View style={styles.emptyState}><Feather name="calendar" size={18} color="#70697D" /><Text style={styles.emptySession}>No upcoming sessions scheduled</Text></View>
+        <View style={[styles.sectionHeading, { marginTop: 24 }]}><View style={[styles.sectionDot, { backgroundColor: "#F3C969" }]} /><Text style={styles.sectionTitle}>PAST SESSIONS</Text><Text style={styles.sectionCount}>{completedSessions.length}</Text></View>
+        {completedSessions.length ? completedSessions.map((record) => <View key={record.id} style={styles.sessionListRow}><View style={styles.sessionRowIcon}><Feather name="file-text" size={16} color="#A78BFA" /></View><View style={{ flex: 1 }}><Text numberOfLines={1} style={styles.sessionTitle}>{record.title}</Text><Text style={styles.sessionCodeLabel}>{record.language} · {record.status} · {new Date(record.created_at).toLocaleDateString()}</Text></View><Pressable onPress={() => void downloadTranscript(record)} disabled={!record.segments.length} style={[styles.downloadButton, !record.segments.length && { opacity: 0.45 }]}><Feather name="download" size={15} color="#CDBDFF" /><Text style={styles.downloadText}>TXT</Text></Pressable></View>) : <View style={styles.emptyState}><Feather name="archive" size={18} color="#70697D" /><Text style={styles.emptySession}>Completed sessions will appear here</Text></View>}
       </View>
     </ScrollView>
   );
@@ -336,6 +342,7 @@ const getStyles = (isDark: boolean) =>
       marginBottom: 24,
       textAlign: "center",
     },
+    headerIcon: { width: 44, height: 44, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(167,139,250,0.15)", borderWidth: 1, borderColor: "rgba(167,139,250,0.28)", marginBottom: 12 },
     eyebrow: {
       fontSize: 12,
       fontWeight: "700",
@@ -356,6 +363,11 @@ const getStyles = (isDark: boolean) =>
       maxWidth: 540,
       lineHeight: 20,
     },
+    overviewGrid: { width: "100%", flexDirection: "row", flexWrap: "wrap", gap: 12, marginBottom: 18 },
+    overviewCard: { flex: 1, minWidth: 170, flexDirection: "row", alignItems: "center", gap: 12, padding: 15, borderRadius: 14, backgroundColor: isDark ? "#1C1829" : "#FFFFFF", borderWidth: 1, borderColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)" },
+    overviewIcon: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center" },
+    overviewValue: { color: isDark ? "#F3F0FF" : "#1E1A29", fontSize: 18, fontWeight: "800" },
+    overviewLabel: { color: isDark ? "#9690A3" : "#71697D", fontSize: 11, marginTop: 2 },
     tabContainer: {
       flexDirection: "row",
       backgroundColor: isDark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.05)",
@@ -398,6 +410,10 @@ const getStyles = (isDark: boolean) =>
     cardWide: {
       maxWidth: 560,
     },
+    controlCard: { maxWidth: 900, marginTop: 18, padding: 26 },
+    controlHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 12 },
+    allSessionsBadge: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 9, backgroundColor: isDark ? "#2A2338" : "#F0EBF8" },
+    allSessionsText: { color: isDark ? "#CDBDFF" : "#62499A", fontSize: 11, fontWeight: "700" },
     cardHeader: {
       fontSize: 18,
       fontWeight: "700",
@@ -546,6 +562,16 @@ const getStyles = (isDark: boolean) =>
       marginTop: 8,
       backgroundColor: isDark ? "#120E1C" : "#F5F3F9",
     },
+    liveRow: { borderWidth: 1, borderColor: "rgba(85,214,164,0.30)", backgroundColor: isDark ? "rgba(85,214,164,0.07)" : "#F1FBF7" },
+    sessionRowIcon: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: isDark ? "#2A2338" : "#ECE7F6" },
+    sectionHeading: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 12 },
+    sectionDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#55D6A4" },
+    sectionTitle: { color: isDark ? "#BDB6CB" : "#5E566D", fontSize: 11, fontWeight: "800", letterSpacing: 1.1 },
+    sectionCount: { marginLeft: "auto", color: isDark ? "#827B91" : "#8F8A9E", fontSize: 11 },
+    livePill: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 9, paddingVertical: 6, borderRadius: 8, backgroundColor: "rgba(85,214,164,0.14)" },
+    livePillDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#55D6A4" },
+    livePillText: { color: "#55D6A4", fontSize: 10, fontWeight: "800" },
+    emptyState: { flexDirection: "row", alignItems: "center", gap: 9, paddingVertical: 14 },
     emptySession: {
       color: isDark ? "#7F7A8C" : "#8F8A9E",
       fontSize: 12,
