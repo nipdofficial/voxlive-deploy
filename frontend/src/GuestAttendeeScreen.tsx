@@ -41,7 +41,7 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
   useEffect(() => {
     void getSessionInfo(roomCode).then((session) => {
       setInfo(session);
-      setStatus(session.is_active ? "ready" : "ended");
+      setStatus(session.is_started ? session.is_active ? "ready" : "ended" : "waiting");
     }).catch((caught) => {
       setStatus("error");
       setError(caught instanceof Error ? caught.message : "This session is not available");
@@ -60,10 +60,11 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
   // attendee copy when the organizer ends the room so both views retain the
   // completed transcript, including any final segments not received live.
   useEffect(() => {
-    if (!joined || !info) return;
+    if (!info || joined || info.is_started) return;
     const timer = setInterval(() => {
       void getSessionInfo(roomCode).then(async (session) => {
         setInfo(session);
+        setStatus(session.is_started ? session.is_active ? "ready" : "ended" : "waiting");
         if (!session.is_active) {
           setStatus("ended");
           const record = await getTranscript(session.meeting_id).catch(() => null);
@@ -72,10 +73,10 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
       }).catch(() => undefined);
     }, 4000);
     return () => clearInterval(timer);
-  }, [joined, info?.meeting_id, roomCode]);
+  }, [joined, info?.is_started, info?.meeting_id, roomCode]);
 
   const join = async () => {
-    if (!name.trim() || !info?.is_active) return;
+    if (!name.trim() || !info?.is_active || !info.is_started) return;
     setError(null);
     setStatus("joining");
     try {
@@ -153,7 +154,7 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
             <Text style={styles.cardTitle}>Join this live transcript</Text>
             <Text style={styles.cardHint}>Enter your display name to continue.</Text>
             <TextInput value={name} onChangeText={setName} placeholder="Your name" placeholderTextColor="#81798F" style={styles.input} autoCapitalize="words" />
-            <Pressable onPress={() => void join()} disabled={status === "loading" || status === "joining" || status === "ended" || !name.trim()} style={[styles.primary, (!name.trim() || status === "joining" || status === "ended") && { opacity: 0.5 }]}>{status === "joining" ? <ActivityIndicator color="white" /> : <><Feather name="log-in" size={17} color="white" /><Text style={styles.primaryText}>{status === "ended" ? "Session ended" : "Join live session"}</Text></>}</Pressable>
+            <Pressable onPress={() => void join()} disabled={status === "loading" || status === "waiting" || status === "joining" || status === "ended" || !name.trim()} style={[styles.primary, (!name.trim() || status === "waiting" || status === "joining" || status === "ended") && { opacity: 0.5 }]}>{status === "joining" ? <ActivityIndicator color="white" /> : <><Feather name="log-in" size={17} color="white" /><Text style={styles.primaryText}>{status === "ended" ? "Session ended" : status === "waiting" ? "Waiting for organizer" : "Join live session"}</Text></>}</Pressable>
           </View>
         ) : (
           <>

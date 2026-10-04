@@ -80,5 +80,6 @@ export interface SessionInfo {
   max_participants: number;
   current_participants: number;
   is_active: boolean;
+  is_started?: boolean;
   created_at: string;
 }

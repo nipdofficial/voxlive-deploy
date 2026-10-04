@@ -160,10 +160,15 @@ class SessionInfo(BaseModel):
     max_participants: int
     current_participants: int
     is_active: bool
+    is_started: bool = False
     created_at: datetime
 
 
 class MeetingEnd(BaseModel):
+    host_secret: str = Field(min_length=1)
+
+
+class MeetingStart(BaseModel):
     host_secret: str = Field(min_length=1)
 
 

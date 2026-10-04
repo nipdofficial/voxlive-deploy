@@ -37,7 +37,7 @@ import {
   useFonts,
 } from "@expo-google-fonts/dm-sans";
 
-import { cancelTranscription, createMeeting, deleteTranscript, endMeeting, generateTranscriptSummary, getHistory, getTranscript, joinMeeting, renameTranscriptSpeaker, retryTranscription, submitAudio, translateTranscript, updateMeetingLanguage, updateTranscript, WS_URL } from "./api";
+import { cancelTranscription, createMeeting, deleteTranscript, endMeeting, generateTranscriptSummary, getHistory, getTranscript, joinMeeting, renameTranscriptSpeaker, retryTranscription, startMeeting as startMeetingApi, submitAudio, translateTranscript, updateMeetingLanguage, updateTranscript, WS_URL } from "./api";
 import type { Language, MeetingConnection, ProcessingStage, Segment, SessionType, TranscriptRecord, TranscriptSummary } from "./types";
 import type { MeetingClient, MeetingParticipantView } from "./livekitMeeting";
 import { startWebAudioStream, type WebAudioStream } from "./webAudioStream";
@@ -1133,7 +1133,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
     setProcessingStage(null);
     setStatus("uploading");
     try {
-      const job = await submitAudio(asset.uri, asset.name, asset.mimeType ?? "audio/mpeg", language, "Upload", diarization, asset.file);
+      const job = await submitAudio(asset.uri, asset.name, asset.mimeType ?? "audio/mpeg", language, "Upload", diarization, asset.file, undefined, meetingConnection?.is_host ? meetingTitle : undefined);
       trackJob(job.id);
       setCurrentRecordId(job.id);
       setStatus("processing");
@@ -1145,9 +1145,25 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
     }
   };
 
+  const startCreatedMeeting = async () => {
+    const connection = meetingConnection;
+    if (!connection?.is_host) return;
+    setSessionType("Meeting");
+    setBusy(true);
+    setStatus("connecting");
+    try {
+      await startMeetingApi(connection.room_code, connection.host_secret ?? "");
+      await connectToMeeting(connection, meetingTitle);
+    } catch (error) {
+      setBusy(false);
+      throw error;
+    }
+  };
+
   const handlePrimary = async () => {
     try {
       if (sessionType === "Meeting") return active ? await stopMeeting() : await startMeeting(false);
+      if (meetingConnection?.is_host && !active && sessionType === "Live") return await startCreatedMeeting();
       if (active) return sessionType === "Live" || sessionType === "Record" ? await stopLive() : await stopMeeting();
       if (sessionType === "Upload") return await chooseUpload();
       if (sessionType === "Live" || sessionType === "Record") return await startLive();
@@ -1171,7 +1187,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
 
   const primaryLabel = active
     ? sessionType === "Meeting" && !meetingConnection?.is_host ? "Leave meeting" : sessionType === "Meeting" ? "End meeting" : "Stop session"
-    : sessionType === "Upload" ? "Choose audio file" : sessionType === "Live" ? "Start live transcription" : sessionType === "Meeting" ? "Create meeting" : "Start recording";
+    : sessionType === "Upload" ? "Choose audio file" : sessionType === "Live" ? meetingConnection?.is_host ? "Start live meeting" : "Start live transcription" : sessionType === "Meeting" ? "Create meeting" : "Start recording";
   const shownDuration = duration;
   const displayedSegments = selected?.segments ?? [];
   const liveMeetingRecord: TranscriptRecord | null = meetingConnection && sessionType === "Meeting"
@@ -1190,7 +1206,10 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
     : null;
   const currentExportRecord = liveMeetingRecord ?? history.find((record) => record.id === currentRecordId) ?? null;
   const organizerMeeting = sessionType === "Meeting";
-  const availableSessionTypes = SESSION_TYPES.filter((item) => !(organizerMeeting && item.value === "Record"));
+  const organizerSessionSetup = Boolean(meetingConnection?.is_host && !active);
+  const availableSessionTypes = organizerSessionSetup
+    ? SESSION_TYPES.filter((item) => item.value === "Live" || item.value === "Upload")
+    : SESSION_TYPES.filter((item) => !(organizerMeeting && item.value === "Record"));
   const filteredHistory = useMemo(() => {
     const needle = historySearch.trim().toLocaleLowerCase();
     return history.filter((record) => {
@@ -1280,17 +1299,15 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
           onOpenCreatedSession={async (connection, title) => {
             setMeetingName(connection.display_name);
             setMeetingTitle(title);
-            setSessionType("Meeting");
+            setLanguage(connection.language ?? "Mixed");
+            setSessionType("Live");
             setTab("new");
-            try {
-              setBusy(true);
-              setStatus("connecting");
-              await connectToMeeting(connection, title);
-            } catch (err) {
-              setMeetingConnection(null);
-              setBusy(false);
-              Alert.alert("Open Session", err instanceof Error ? err.message : "Could not open session");
-            }
+            setMeetingConnection(connection);
+            setMeetingParticipants([]);
+            setSegments([]);
+            setStatus("ready");
+            setActive(false);
+            setBusy(false);
           }}
         />
       ) : tab === "history" ? (
@@ -1396,7 +1413,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
             <TypewriterText text="Turn every voice into words." style={styles.heroTitle} />
             <Text style={styles.heroCopy}>Fast, accurate transcription for Sinhala, Tamil and English.</Text>
           </View>
-          {sessionType === "Meeting" && meetingConnection?.is_host ? (
+          {meetingConnection?.is_host ? (
             <View style={{ width: "100%", maxWidth: 1180, alignSelf: "center", padding: 18, marginBottom: 18, borderRadius: 18, backgroundColor: "#211B32", borderWidth: 1, borderColor: "#4B4262" }}>
               <Text style={{ color: "#B9A7FF", fontSize: 9, fontWeight: "700", letterSpacing: 1.4 }}>SESSION DETAILS</Text>
               <Text style={{ color: "#F1ECFF", fontSize: 22, fontWeight: "700", marginTop: 6 }}>{meetingTitle || "Live session"}</Text>

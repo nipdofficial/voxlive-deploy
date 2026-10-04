@@ -104,6 +104,7 @@ export async function submitAudio(
   diarization: boolean,
   browserFile?: Blob,
   durationSeconds?: number,
+  title?: string,
 ): Promise<{ id: string; status: string }> {
   const form = new FormData();
   if (browserFile) {
@@ -126,7 +127,7 @@ export async function submitAudio(
   if (durationSeconds && durationSeconds > 0) {
     form.append("duration_seconds", String(durationSeconds));
   }
-  form.append("title", `${sessionType} • ${new Date().toLocaleString()}`);
+  form.append("title", title?.trim() || `${sessionType} • ${new Date().toLocaleString()}`);
   const response = await fetch(`${API_URL}/transcribe`, { method: "POST", body: form });
   if (!response.ok) throw new Error((await response.text()) || "Upload failed");
   return response.json();
@@ -176,6 +177,16 @@ export async function endMeeting(roomCode: string, hostSecret: string): Promise<
     body: JSON.stringify({ host_secret: hostSecret }),
   });
   if (!response.ok) throw new Error((await response.text()) || "Could not end meeting");
+  return response.json();
+}
+
+export async function startMeeting(roomCode: string, hostSecret: string): Promise<SessionInfo> {
+  const response = await fetch(`${API_URL}/meetings/${encodeURIComponent(roomCode.trim().toUpperCase())}/start`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ host_secret: hostSecret }),
+  });
+  if (!response.ok) throw new Error((await response.text()) || "Could not start meeting");
   return response.json();
 }
 

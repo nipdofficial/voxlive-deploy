@@ -142,6 +142,7 @@ class MeetingSession:
         self.max_participants = max_participants
         self.started_at = time.monotonic()
         self.created_at = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
+        self.started = False
         self.states: dict[str, TrackState] = {}
         self.room: Any = None
         self.stop_event = asyncio.Event()
@@ -169,6 +170,10 @@ class MeetingSession:
         return participant
 
     async def start(self) -> None:
+        if self.started:
+            return
+        self.started = True
+        self.started_at = time.monotonic()
         self.task = asyncio.create_task(self._run())
 
     async def _run(self) -> None:
@@ -524,11 +529,6 @@ class MeetingRegistry:
                 max_participants=max_participants,
             )
             self.sessions[code] = session
-        await session.start()
-        if session.task:
-            session.task.add_done_callback(
-                lambda t, room_code=code: self.sessions.pop(room_code, None) if t.cancelled() or t.exception() else None
-            )
         return session
 
     def get(self, code: str) -> MeetingSession | None:

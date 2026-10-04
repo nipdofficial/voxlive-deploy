@@ -11,6 +11,7 @@ from app.models.schemas import (
     MeetingConnection,
     MeetingCreate,
     MeetingEnd,
+    MeetingStart,
     MeetingJoin,
     MeetingUpdate,
     SessionInfo,
@@ -50,7 +51,8 @@ def _session_info(session) -> SessionInfo:
         language=session.language,
         max_participants=session.max_participants,
         current_participants=session.participant_count,
-        is_active=not session.ending,
+        is_active=session.started and not session.ending,
+        is_started=session.started,
         created_at=session.created_at,
     )
 
@@ -93,6 +95,22 @@ async def get_session_info(code: str) -> SessionInfo:
     return _session_info(session)
 
 
+@router.post("/{code}/start", response_model=SessionInfo)
+async def start_meeting(code: str, body: MeetingStart) -> SessionInfo:
+    session = meeting_registry.get(code)
+    if not session or session.ending:
+        raise HTTPException(status_code=404, detail="Session not found or already ended")
+    if not hmac.compare_digest(session.host_secret, body.host_secret):
+        raise HTTPException(status_code=403, detail="Only the session host can start it")
+    await session.start()
+    if session.task:
+        session.task.add_done_callback(
+            lambda task, room_code=code: meeting_registry.sessions.pop(room_code, None)
+            if task.cancelled() or task.exception() else None
+        )
+    return _session_info(session)
+
+
 @router.get("/{code}/qr", response_class=Response)
 async def get_session_qr(code: str) -> Response:
     """Return a QR code PNG for the given session room code."""
@@ -128,6 +146,8 @@ async def join_meeting(code: str, body: MeetingJoin) -> MeetingConnection:
     session = meeting_registry.get(code)
     if not session or session.ending:
         raise HTTPException(status_code=404, detail="Session not found or already ended")
+    if not session.started:
+        raise HTTPException(status_code=409, detail="The organizer has not started this session yet")
     try:
         display_name = normalize_display_name(body.display_name)
     except ValueError as exc:
