@@ -6,6 +6,7 @@ export type MeetingCallbacks = {
   onConnectionChange: (status: string) => void;
   onParticipantsChange: (participants: MeetingParticipantView[]) => void;
   onSegment: (segment: Segment) => void;
+  onMicStateChange?: (state: { identity: string; name: string; muted: boolean }) => void;
   onError: (error: Error) => void;
 };
 

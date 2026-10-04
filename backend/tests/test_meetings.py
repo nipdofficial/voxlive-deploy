@@ -150,7 +150,7 @@ def test_participant_token_is_room_scoped_and_microphone_only(monkeypatch) -> No
     )
     session = meeting_service.MeetingSession("ABCDEFGH", "secret", record, Language.english)
 
-    token = meeting_service.create_join_token(session, "user-1", "Anu", False)
+    token = meeting_service.create_join_token(session, "user-1", "Anu", False, is_host=False)
     claims = api.TokenVerifier("test-key", "test-secret-long-enough-for-jwt").verify(token)
 
     assert claims.video.room_join is True

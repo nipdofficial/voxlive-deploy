@@ -634,6 +634,8 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
   const [meetingTitle, setMeetingTitle] = useState("");
   const [meetingConnection, setMeetingConnection] = useState<MeetingConnection | null>(null);
   const [meetingParticipants, setMeetingParticipants] = useState<MeetingParticipantView[]>([]);
+  const [meetingMicEnabled, setMeetingMicEnabled] = useState(true);
+  const [meetingSpeakerMuted, setMeetingSpeakerMuted] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
   const webAudioRef = useRef<WebAudioStream | null>(null);
   const meetingClientRef = useRef<MeetingClient | null>(null);
@@ -1054,11 +1056,13 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
           && item.end === segment.end
           && item.text === segment.text
         );
-        return duplicate ? current : [...current, segment].sort((a, b) => a.start - b.start);
+        return duplicate ? current : [segment, ...current].sort((a, b) => b.start - a.start);
       }),
+      onMicStateChange: (state) => setMeetingSpeakerMuted(state.muted),
       onError: (error) => Alert.alert("Meeting", error.message),
     }, { publishMicrophone: connection.is_host });
     meetingClientRef.current = client;
+    setMeetingMicEnabled(connection.is_host);
     if (connection.language) setLanguage(connection.language);
     setActive(true);
     setBusy(false);
@@ -1114,6 +1118,8 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
     }
     await meetingClientRef.current?.disconnect();
     meetingClientRef.current = null;
+    setMeetingMicEnabled(true);
+    setMeetingSpeakerMuted(false);
     setMeetingParticipants([]);
     setMeetingConnection(null);
     setMeetingTitle("");
@@ -1467,7 +1473,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
               <View style={styles.privacyRow}><Feather name="shield" size={13} color="#716C7F" /><Text style={styles.privacyText}>Your audio is encrypted in transit and never used to train public models.</Text></View>
             </View>
 
-            {sessionType === "Meeting" && meetingConnection && meetingTitle ? <View style={{ gap: 3, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 14, borderWidth: 1, borderColor: "#8067CE", backgroundColor: "rgba(117,91,208,0.16)", marginBottom: 12 }}><Text style={{ color: "#B9A7FF", fontSize: 9, fontWeight: "700", letterSpacing: 1.4 }}>SESSION</Text><Text style={{ color: "#EEEAF9", fontSize: 16, fontWeight: "700" }}>{meetingTitle}</Text><Text style={{ color: "#B8B1C8", fontSize: 11 }}>Room {meetingConnection.room_code}</Text></View> : null}
+            {sessionType === "Meeting" && meetingConnection && meetingTitle ? <View style={{ gap: 8, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 14, borderWidth: 1, borderColor: "#8067CE", backgroundColor: "rgba(117,91,208,0.16)", marginBottom: 12 }}><Text style={{ color: "#B9A7FF", fontSize: 9, fontWeight: "700", letterSpacing: 1.4 }}>SESSION</Text><Text style={{ color: "#EEEAF9", fontSize: 16, fontWeight: "700" }}>{meetingTitle}</Text><Text style={{ color: "#B8B1C8", fontSize: 11 }}>Room {meetingConnection.room_code} · {language}</Text>{meetingConnection.is_host && active ? <Pressable onPress={() => void meetingClientRef.current?.setMicrophoneEnabled(!meetingMicEnabled).then(() => setMeetingMicEnabled((current) => !current))} style={{ alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 10, backgroundColor: meetingMicEnabled ? "#755BD0" : "rgba(239,92,117,0.18)" }}><Feather name={meetingMicEnabled ? "mic" : "mic-off"} size={15} color="white" /><Text style={{ color: "white", fontSize: 11, fontWeight: "700" }}>{meetingMicEnabled ? "Mute microphone" : "Unmute microphone"}</Text></Pressable> : null}{meetingSpeakerMuted && !meetingConnection.is_host ? <Text style={{ color: "#F3C969", fontSize: 11 }}>Organizer microphone is muted</Text> : null}</View> : null}
             <TranscriptPanel segments={segments} interimText={interimText} interimLanguage={interimLanguage} active={active} status={status} processingStage={processingStage} duration={shownDuration} intensity={voiceIntensity} exportRecord={currentExportRecord} copied={copiedRecordId === currentRecordId} exportBusy={exporting?.id === currentRecordId ? exporting.kind : null} onCopy={(record) => void copyTranscript(record)} onSaveTranscript={(record) => void saveTranscript(record)} summarizing={summarizingRecordId === currentRecordId} summaryCopied={copiedSummaryRecordId === currentRecordId} onGenerateSummary={(record) => void generateSummary(record)} onCopySummary={(summary) => { if (currentRecordId) void copySummary(currentRecordId, summary); }} onSaveSummary={(record) => void saveSummary(record)} onUpdateRecord={(record, next) => void editTranscriptSegments(record, next)} onRenameSpeaker={(record, oldName, newName) => void renameSpeaker(record, oldName, newName)} onTranslate={(record, target) => void translateRecord(record, target)} translating={translatingRecordId === currentRecordId} styles={styles} />
           </View>
             </>

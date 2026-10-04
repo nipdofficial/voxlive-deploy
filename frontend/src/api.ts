@@ -206,6 +206,20 @@ export async function getSessionInfo(roomCode: string): Promise<SessionInfo> {
   return response.json();
 }
 
+export async function submitMeetingFeedback(
+  roomCode: string,
+  displayName: string,
+  rating: number,
+  comment: string,
+): Promise<void> {
+  const response = await fetch(`${API_URL}/meetings/${encodeURIComponent(roomCode.trim().toUpperCase())}/feedback`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ display_name: displayName.trim(), rating, comment: comment.trim() }),
+  });
+  if (!response.ok) throw new Error((await response.text()) || "Could not submit feedback");
+}
+
 export function getSessionQrUrl(roomCode: string): string {
   return `${API_URL}/meetings/${encodeURIComponent(roomCode.trim().toUpperCase())}/qr`;
 }

@@ -64,6 +64,12 @@ class MeetingParticipant(BaseModel):
     shared_mic: bool = False
 
 
+class MeetingFeedback(BaseModel):
+    display_name: str = Field(min_length=1, max_length=80)
+    rating: int = Field(ge=1, le=5)
+    comment: str = Field(default="", max_length=1000)
+
+
 class SummaryPoint(BaseModel):
     text: str = Field(min_length=1)
     start_seconds: float | None = Field(default=None, ge=0)
@@ -102,6 +108,7 @@ class TranscriptRecord(BaseModel):
     audio_filename: str | None = None
     participant_audio: dict[str, str] = Field(default_factory=dict)
     participants: list[MeetingParticipant] = Field(default_factory=list)
+    feedback: list[MeetingFeedback] = Field(default_factory=list)
     summary: TranscriptSummary | None = None
     summary_source_hash: str | None = None
     error: str | None = None
@@ -175,6 +182,12 @@ class MeetingStart(BaseModel):
 class MeetingUpdate(BaseModel):
     host_secret: str = Field(min_length=1)
     language: Language
+
+
+class MeetingFeedbackRequest(BaseModel):
+    display_name: str = Field(min_length=1, max_length=80)
+    rating: int = Field(ge=1, le=5)
+    comment: str = Field(default="", max_length=1000)
 
 
 class TranscriptEdit(BaseModel):

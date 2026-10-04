@@ -24,9 +24,13 @@ export const connectMeeting: ConnectMeeting = async (url, token, callbacks, opti
     if (options.publishMicrophone && publication.kind === Track.Kind.Audio) callbacks.onConnectionChange("microphone ready");
   });
   room.on(RoomEvent.DataReceived, (payload, _participant, _kind, topic) => {
-    if (topic !== "transcript.segment") return;
     try {
       const message = JSON.parse(new TextDecoder().decode(payload));
+      if (topic === "meeting.mic" && message.type === "mic") {
+        callbacks.onMicStateChange?.({ identity: String(message.identity || "organizer"), name: String(message.name || "Organizer"), muted: Boolean(message.muted) });
+        return;
+      }
+      if (topic !== "transcript.segment") return;
       if (message.type === "transcript" && message.segment) callbacks.onSegment(message.segment);
     } catch (error) {
       callbacks.onError(error instanceof Error ? error : new Error("Invalid transcript event"));
@@ -56,6 +60,10 @@ export const connectMeeting: ConnectMeeting = async (url, token, callbacks, opti
   return {
     setMicrophoneEnabled: async (enabled: boolean) => {
       await room.localParticipant.setMicrophoneEnabled(enabled);
+      if (options.publishMicrophone) {
+        const payload = new TextEncoder().encode(JSON.stringify({ type: "mic", identity: room.localParticipant.identity, name: room.localParticipant.name || "Organizer", muted: !enabled }));
+        await room.localParticipant.publishData(payload, { reliable: true, topic: "meeting.mic" });
+      }
     },
     disconnect: async () => {
       await room.localParticipant.setMicrophoneEnabled(false);

@@ -11,6 +11,8 @@ from app.models.schemas import (
     MeetingConnection,
     MeetingCreate,
     MeetingEnd,
+    MeetingFeedback,
+    MeetingFeedbackRequest,
     MeetingStart,
     MeetingJoin,
     MeetingUpdate,
@@ -184,3 +186,18 @@ async def end_meeting(code: str, body: MeetingEnd) -> dict[str, str]:
         raise HTTPException(status_code=403, detail="Only the session host can end it")
     await session.end()
     return {"id": session.record.id, "status": "processing"}
+
+
+@router.post("/{code}/feedback", response_model=MeetingFeedback)
+async def submit_feedback(code: str, body: MeetingFeedbackRequest) -> MeetingFeedback:
+    session = meeting_registry.get(code)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    feedback = MeetingFeedback(
+        display_name=body.display_name.strip(),
+        rating=body.rating,
+        comment=body.comment.strip(),
+    )
+    session.record.feedback.append(feedback)
+    await save_record(session.record)
+    return feedback

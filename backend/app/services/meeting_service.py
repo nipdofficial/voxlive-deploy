@@ -560,7 +560,7 @@ def create_join_token(
                 room=session.room_name,
                 can_publish=is_host,
                 can_subscribe=True,
-                can_publish_data=False,
+                can_publish_data=is_host,
                 can_publish_sources=["microphone"] if is_host else [],
             )
         )
