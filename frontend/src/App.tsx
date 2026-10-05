@@ -1516,6 +1516,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
       {!isWide ? (
         <View style={styles.mobileNav}>
           <Pressable onPress={() => { setTab("new"); setSelected(null); }} style={styles.mobileNavItem}><Ionicons name={tab === "new" ? "add-circle" : "add-circle-outline"} size={24} color={tab === "new" ? "#B9A7FF" : "#777181"} /><Text style={[styles.mobileNavText, tab === "new" && styles.mobileNavTextActive]}>New</Text></Pressable>
+          <Pressable onPress={() => { setTab("sessions"); setSelected(null); }} style={styles.mobileNavItem}><Ionicons name={tab === "sessions" ? "people" : "people-outline"} size={24} color={tab === "sessions" ? "#B9A7FF" : "#777181"} /><Text style={[styles.mobileNavText, tab === "sessions" && styles.mobileNavTextActive]}>Sessions</Text></Pressable>
           <Pressable onPress={() => { setTab("history"); void refreshHistory(); }} style={styles.mobileNavItem}><Ionicons name={tab === "history" ? "time" : "time-outline"} size={24} color={tab === "history" ? "#B9A7FF" : "#777181"} /><Text style={[styles.mobileNavText, tab === "history" && styles.mobileNavTextActive]}>History</Text></Pressable>
         </View>
       ) : null}

@@ -165,13 +165,20 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
   return (
     <View style={styles.page}>
       <View style={styles.glow} />
-      <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.brand}><View style={styles.logo}><Feather name="radio" size={20} color="white" /></View><View><Text style={styles.brandName}>VoxLive</Text><Text style={styles.brandTag}>GUEST LIVE SESSION</Text></View></View>
+      <ScrollView contentContainerStyle={[styles.content, participantView && { paddingBottom: 110 }]}>
+        <View style={styles.brand}>
+          <View style={styles.logo}><Feather name="radio" size={20} color="white" /></View>
+          <View><Text style={styles.brandName}>VoxLive</Text><Text style={styles.brandTag}>GUEST LIVE SESSION</Text></View>
+        </View>
         <View style={styles.hero}>
           <Text style={styles.eyebrow}>QR ATTENDEE ACCESS</Text>
           <Text style={styles.title}>{info?.title ?? "Live session"}</Text>
           <Text style={styles.subtitle}>Room {roomCode}</Text>
-          <View style={styles.stats}><Text style={styles.stat}>{joined ? "● LIVE" : status.toUpperCase()}</Text><Text style={styles.stat}>{participants.length} connected</Text><Text style={styles.stat}>⏱ {formatTime(elapsed)}</Text></View>
+          <View style={styles.stats}>
+            <Text style={styles.stat}>{joined ? "● LIVE" : status.toUpperCase()}</Text>
+            <Text style={styles.stat}>{participants.length} connected</Text>
+            <Text style={styles.stat}>⏱ {formatTime(elapsed)}</Text>
+          </View>
         </View>
         {error ? <View style={styles.error}><Text style={styles.errorText}>{error}</Text></View> : null}
         {!participantView ? (
@@ -179,23 +186,144 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
             <Text style={styles.cardTitle}>Join this live transcript</Text>
             <Text style={styles.cardHint}>Enter your display name to continue.</Text>
             <TextInput value={name} onChangeText={setName} placeholder="Your name" placeholderTextColor="#81798F" style={styles.input} autoCapitalize="words" />
-            <Pressable onPress={() => void join()} disabled={status === "loading" || status === "waiting" || status === "joining" || status === "ended" || !name.trim()} style={[styles.primary, (!name.trim() || status === "waiting" || status === "joining" || status === "ended") && { opacity: 0.5 }]}>{status === "joining" ? <ActivityIndicator color="white" /> : <><Feather name="log-in" size={17} color="white" /><Text style={styles.primaryText}>{status === "ended" ? "Session ended" : status === "waiting" ? "Waiting for organizer" : "Join live session"}</Text></>}</Pressable>
+            <Pressable onPress={() => void join()} disabled={status === "loading" || status === "waiting" || status === "joining" || status === "ended" || !name.trim()} style={[styles.primary, (!name.trim() || status === "waiting" || status === "joining" || status === "ended") && { opacity: 0.5 }]}>
+              {status === "joining" ? <ActivityIndicator color="white" /> : <><Feather name="log-in" size={17} color="white" /><Text style={styles.primaryText}>{status === "ended" ? "Session ended" : status === "waiting" ? "Waiting for organizer" : "Join live session"}</Text></>}
+            </Pressable>
           </View>
         ) : (
           <>
             {status === "ended" ? <View style={styles.ended}><Feather name="check-circle" size={18} color="#55D6A4" /><View><Text style={styles.endedTitle}>Session ended</Text><Text style={styles.endedText}>The organizer ended this session. Your transcript is saved.</Text></View></View> : null}
             {speakerMuted ? <View style={styles.muted}><Feather name="mic-off" size={16} color="#F3C969" /><Text style={styles.mutedText}>The organizer muted the microphone.</Text></View> : null}
-            <View style={styles.actions}><Pressable onPress={() => void download()} disabled={!segments.length} style={[styles.action, !segments.length && { opacity: 0.5 }]}><Feather name="download" size={16} color="#CDBDFF" /><Text style={styles.actionText}>Save TXT</Text></Pressable><Pressable onPress={() => setFeedbackOpen(true)} style={styles.action}><Feather name="star" size={16} color="#CDBDFF" /><Text style={styles.actionText}>{feedbackSent ? "Feedback sent" : "Feedback"}</Text></Pressable>{joined ? <Pressable onPress={() => void leave()} style={styles.leave}><Text style={styles.leaveText}>Leave</Text></Pressable> : null}</View>
-            <View style={styles.transcript}><View style={styles.transcriptHeader}><Text style={styles.cardTitle}>Live transcript</Text><Text style={[styles.live, status === "ended" && { color: "#F3C969" }]}>{status === "ended" ? "● ENDED" : "● LIVE"}</Text></View><ScrollView style={styles.transcriptList} contentContainerStyle={styles.transcriptListContent} nestedScrollEnabled>{segments.length ? segments.map((segment, index) => <View key={`${segment.start}-${index}`} style={styles.line}><Text style={styles.time}>{formatTime(segment.start)}</Text><View style={styles.lineBar} /><View style={{ flex: 1 }}><Text style={styles.speaker}>{segment.speaker || "Speaker"}</Text>{segment.translated_text ? <><Text style={styles.translation}>{segment.translated_text}</Text><Text style={styles.text}>{segment.text}</Text></> : <Text style={styles.text}>{segment.text}</Text>}</View></View>) : <Text style={styles.waiting}>Waiting for live speech…</Text>}</ScrollView></View>
+            <View style={styles.transcript}>
+              <View style={styles.transcriptHeader}>
+                <Text style={styles.cardTitle}>Live transcript</Text>
+                <Text style={[styles.live, status === "ended" && { color: "#F3C969" }]}>{status === "ended" ? "● ENDED" : "● LIVE"}</Text>
+              </View>
+              <ScrollView style={styles.transcriptList} contentContainerStyle={styles.transcriptListContent} nestedScrollEnabled>
+                {segments.length ? segments.map((segment, index) => (
+                  <View key={`${segment.start}-${index}`} style={styles.line}>
+                    <Text style={styles.time}>{formatTime(segment.start)}</Text>
+                    <View style={styles.lineBar} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.speaker}>{segment.speaker || "Speaker"}</Text>
+                      {segment.translated_text ? <><Text style={styles.translation}>{segment.translated_text}</Text><Text style={styles.text}>{segment.text}</Text></> : <Text style={styles.text}>{segment.text}</Text>}
+                    </View>
+                  </View>
+                )) : <Text style={styles.waiting}>Waiting for live speech…</Text>}
+              </ScrollView>
+            </View>
           </>
         )}
       </ScrollView>
-      <Modal visible={feedbackOpen} transparent animationType="fade" onRequestClose={() => setFeedbackOpen(false)}><View style={styles.modalBackdrop}><View style={styles.feedbackCard}><Text style={styles.cardTitle}>Session feedback</Text><Text style={styles.cardHint}>How was this live transcript?</Text><View style={styles.ratingRow}>{[1, 2, 3, 4, 5].map((rating) => <Pressable key={rating} onPress={() => setFeedbackRating(rating)} style={[styles.rating, rating <= feedbackRating && styles.ratingSelected]}><Text style={styles.ratingText}>{rating}</Text></Pressable>)}</View><TextInput value={feedbackComment} onChangeText={setFeedbackComment} placeholder="Optional comment" placeholderTextColor="#81798F" style={[styles.input, styles.comment]} multiline /><View style={styles.actions}><Pressable onPress={() => setFeedbackOpen(false)} style={styles.leave}><Text style={styles.leaveText}>Cancel</Text></Pressable><Pressable onPress={() => void sendFeedback()} style={styles.primary}><Text style={styles.primaryText}>Send feedback</Text></Pressable></View></View></View></Modal>
+
+      {participantView ? (
+        <View style={styles.mobileNav}>
+          <Pressable onPress={() => void download()} disabled={!segments.length} style={({ pressed }) => [styles.mobileNavItem, !segments.length && { opacity: 0.4 }, pressed && { opacity: 0.7 }]}>
+            <Feather name="download" size={22} color={!segments.length ? "#777181" : "#B9A7FF"} />
+            <Text style={[styles.mobileNavText, segments.length > 0 && styles.mobileNavTextActive]}>Save TXT</Text>
+          </Pressable>
+          <Pressable onPress={() => setFeedbackOpen(true)} style={({ pressed }) => [styles.mobileNavItem, pressed && { opacity: 0.7 }]}>
+            <Feather name="star" size={22} color={feedbackSent ? "#55D6A4" : "#B9A7FF"} />
+            <Text style={[styles.mobileNavText, feedbackSent && { color: "#55D6A4" }]}>{feedbackSent ? "Feedback" : "Feedback"}</Text>
+          </Pressable>
+          {joined ? (
+            <Pressable onPress={() => void leave()} style={({ pressed }) => [styles.mobileNavItem, pressed && { opacity: 0.7 }]}>
+              <Feather name="log-out" size={22} color="#F38A9B" />
+              <Text style={[styles.mobileNavText, { color: "#F38A9B" }]}>Leave</Text>
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+
+      <Modal visible={feedbackOpen} transparent animationType="fade" onRequestClose={() => setFeedbackOpen(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.feedbackCard}>
+            <Text style={styles.cardTitle}>Session feedback</Text>
+            <Text style={styles.cardHint}>How was this live transcript?</Text>
+            <View style={styles.ratingRow}>
+              {[1, 2, 3, 4, 5].map((rating) => (
+                <Pressable key={rating} onPress={() => setFeedbackRating(rating)} style={[styles.rating, rating <= feedbackRating && styles.ratingSelected]}>
+                  <Text style={styles.ratingText}>{rating}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <TextInput value={feedbackComment} onChangeText={setFeedbackComment} placeholder="Optional comment" placeholderTextColor="#81798F" style={[styles.input, styles.comment]} multiline />
+            <View style={styles.modalActions}>
+              <Pressable onPress={() => setFeedbackOpen(false)} style={styles.leave}><Text style={styles.leaveText}>Cancel</Text></Pressable>
+              <Pressable onPress={() => void sendFeedback()} style={styles.primary}><Text style={styles.primaryText}>Send feedback</Text></Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
 const createStyles = () => StyleSheet.create({
-  page: { flex: 1, backgroundColor: "#100D16" }, glow: { position: "absolute", width: 500, height: 500, borderRadius: 250, top: -260, alignSelf: "center", backgroundColor: "rgba(117,91,208,0.16)" }, content: { width: "100%", maxWidth: 820, alignSelf: "center", padding: 24, gap: 16 }, brand: { flexDirection: "row", alignItems: "center", gap: 10 }, logo: { width: 42, height: 42, borderRadius: 13, backgroundColor: "#755BD0", alignItems: "center", justifyContent: "center" }, brandName: { color: "#F1ECFF", fontSize: 18, fontWeight: "700" }, brandTag: { color: "#9F7AEA", fontSize: 8, letterSpacing: 1.2, marginTop: 2 }, hero: { padding: 24, borderRadius: 22, backgroundColor: "#211B32", borderWidth: 1, borderColor: "#4B4262" }, eyebrow: { color: "#B9A7FF", fontSize: 9, fontWeight: "700", letterSpacing: 1.5 }, title: { color: "#F1ECFF", fontSize: 28, fontWeight: "700", marginTop: 8 }, subtitle: { color: "#B8B1C8", fontSize: 12, marginTop: 6 }, stats: { flexDirection: "row", flexWrap: "wrap", gap: 9, marginTop: 18 }, stat: { color: "#D1C0FF", backgroundColor: "rgba(159,122,234,0.16)", paddingHorizontal: 11, paddingVertical: 8, borderRadius: 11, fontSize: 11, fontWeight: "700" }, joinCard: { padding: 22, borderRadius: 18, backgroundColor: "#191620", borderWidth: 1, borderColor: "#302C38", gap: 11 }, cardTitle: { color: "#EEEAF9", fontSize: 16, fontWeight: "700" }, cardHint: { color: "#9F98AA", fontSize: 12 }, input: { height: 48, borderRadius: 11, borderWidth: 1, borderColor: "#4B4262", backgroundColor: "#25222B", color: "#F1ECFF", paddingHorizontal: 14, fontSize: 13 }, primary: { minHeight: 48, borderRadius: 12, backgroundColor: "#755BD0", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }, primaryText: { color: "white", fontSize: 13, fontWeight: "700" }, error: { padding: 13, borderRadius: 11, backgroundColor: "rgba(239,92,117,0.12)" }, errorText: { color: "#F38A9B", fontSize: 12 }, actions: { flexDirection: "row", flexWrap: "wrap", gap: 9 }, action: { minHeight: 42, paddingHorizontal: 14, borderRadius: 11, backgroundColor: "#2A2338", flexDirection: "row", alignItems: "center", gap: 7 }, actionText: { color: "#CDBDFF", fontSize: 11, fontWeight: "700" }, leave: { minHeight: 42, paddingHorizontal: 14, borderRadius: 11, justifyContent: "center", backgroundColor: "rgba(239,92,117,0.12)" }, leaveText: { color: "#F38A9B", fontSize: 11, fontWeight: "700" }, transcript: { padding: 20, borderRadius: 18, backgroundColor: "#191620", borderWidth: 1, borderColor: "#302C38", gap: 17 }, transcriptHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingBottom: 13, borderBottomWidth: 1, borderBottomColor: "#302C38" }, live: { color: "#55D6A4", fontSize: 10, fontWeight: "700" }, line: { flexDirection: "row", gap: 10 }, time: { width: 38, color: "#8F8A9E", fontSize: 10, paddingTop: 2 }, lineBar: { width: 2, borderRadius: 2, backgroundColor: "#9F7AEA" }, speaker: { color: "#B9A7FF", fontSize: 9, fontWeight: "700", marginBottom: 3 }, text: { color: "#E0DAEA", fontSize: 14, lineHeight: 21 }, translation: { color: "#B9A7FF", fontSize: 12, marginTop: 4 }, waiting: { color: "#8F8A9E", fontSize: 13, textAlign: "center", paddingVertical: 34 },
-  transcriptList: { maxHeight: 520, minHeight: 160 }, transcriptListContent: { gap: 17, paddingTop: 2 }, ended: { flexDirection: "row", gap: 10, alignItems: "center", padding: 15, borderRadius: 14, backgroundColor: "rgba(85,214,164,0.10)" }, endedTitle: { color: "#55D6A4", fontWeight: "700", fontSize: 13 }, endedText: { color: "#B8B1C8", fontSize: 11, marginTop: 3 }, muted: { flexDirection: "row", gap: 8, alignItems: "center", padding: 12, borderRadius: 12, backgroundColor: "rgba(243,201,105,0.10)" }, mutedText: { color: "#F3C969", fontSize: 11 }, modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.65)", justifyContent: "center", padding: 22 }, feedbackCard: { width: "100%", maxWidth: 480, alignSelf: "center", padding: 22, borderRadius: 18, backgroundColor: "#211B32", gap: 13 }, ratingRow: { flexDirection: "row", gap: 8 }, rating: { width: 38, height: 38, borderRadius: 19, backgroundColor: "#302A40", alignItems: "center", justifyContent: "center" }, ratingSelected: { backgroundColor: "#755BD0" }, ratingText: { color: "#F1ECFF", fontWeight: "700" }, comment: { height: 80, paddingTop: 12, textAlignVertical: "top" },
+  page: { flex: 1, backgroundColor: "#100E14" },
+  glow: { position: "absolute", width: 500, height: 500, borderRadius: 250, top: -260, alignSelf: "center", backgroundColor: "rgba(100,70,170,0.10)" },
+  content: { width: "100%", maxWidth: 820, alignSelf: "center", padding: 24, gap: 16 },
+  brand: { flexDirection: "row", alignItems: "center", gap: 10 },
+  logo: { width: 42, height: 42, borderRadius: 13, backgroundColor: "#755BD0", alignItems: "center", justifyContent: "center" },
+  brandName: { color: "#F5F2FA", fontFamily: "DMSans_700Bold", fontSize: 18 },
+  brandTag: { color: "#9F7AEA", fontFamily: "DMSans_700Bold", fontSize: 8, letterSpacing: 1.2, marginTop: 2 },
+  hero: { padding: 24, borderRadius: 20, backgroundColor: "#1A181E", borderWidth: 1, borderColor: "#302C38" },
+  eyebrow: { color: "#8063D1", fontFamily: "DMSans_700Bold", fontSize: 9, letterSpacing: 1.8 },
+  title: { color: "#F5F2FA", fontFamily: "DMSans_700Bold", fontSize: 28, marginTop: 8 },
+  subtitle: { color: "#ABA4B9", fontFamily: "DMSans_400Regular", fontSize: 12, marginTop: 6 },
+  stats: { flexDirection: "row", flexWrap: "wrap", gap: 9, marginTop: 18 },
+  stat: { color: "#D8CDF8", backgroundColor: "rgba(159,122,234,0.16)", paddingHorizontal: 11, paddingVertical: 8, borderRadius: 11, fontFamily: "DMSans_700Bold", fontSize: 11 },
+  joinCard: { padding: 22, borderRadius: 18, backgroundColor: "#18161C", borderWidth: 1, borderColor: "#302C38", gap: 11 },
+  cardTitle: { color: "#E5E1ED", fontFamily: "DMSans_700Bold", fontSize: 16 },
+  cardHint: { color: "#ABA4B9", fontFamily: "DMSans_400Regular", fontSize: 12 },
+  input: { height: 48, borderRadius: 11, borderWidth: 1, borderColor: "#4B4262", backgroundColor: "#25222B", color: "#F5F2FA", fontFamily: "DMSans_400Regular", paddingHorizontal: 14, fontSize: 13 },
+  primary: { minHeight: 48, borderRadius: 12, backgroundColor: "#755BD0", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, flex: 1 },
+  primaryText: { color: "white", fontFamily: "DMSans_700Bold", fontSize: 13 },
+  error: { padding: 13, borderRadius: 11, backgroundColor: "rgba(239,92,117,0.12)" },
+  errorText: { color: "#F38A9B", fontFamily: "DMSans_500Medium", fontSize: 12 },
+  transcript: { padding: 20, borderRadius: 20, backgroundColor: "#18161C", borderWidth: 1, borderColor: "#302C38", gap: 17 },
+  transcriptHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingBottom: 13, borderBottomWidth: 1, borderBottomColor: "#302C38" },
+  live: { color: "#55D6A4", fontFamily: "DMSans_700Bold", fontSize: 10 },
+  line: { flexDirection: "row", gap: 10 },
+  time: { width: 38, color: "#A39BAF", fontFamily: "DMSans_500Medium", fontSize: 10, paddingTop: 2 },
+  lineBar: { width: 2, borderRadius: 2, backgroundColor: "#9F7AEA" },
+  speaker: { color: "#D8CDF8", fontFamily: "DMSans_700Bold", fontSize: 9, marginBottom: 3, textTransform: "uppercase" },
+  text: { color: "#D0CBD9", fontFamily: "DMSans_400Regular", fontSize: 13, lineHeight: 21 },
+  translation: { color: "#D8CDF8", fontFamily: "DMSans_400Regular", fontSize: 12, marginTop: 4 },
+  waiting: { color: "#A39BAF", fontFamily: "DMSans_400Regular", fontSize: 13, textAlign: "center", paddingVertical: 34 },
+  transcriptList: { maxHeight: 520, minHeight: 160 },
+  transcriptListContent: { gap: 17, paddingTop: 2 },
+  ended: { flexDirection: "row", gap: 10, alignItems: "center", padding: 15, borderRadius: 14, backgroundColor: "rgba(85,214,164,0.10)" },
+  endedTitle: { color: "#55D6A4", fontFamily: "DMSans_700Bold", fontSize: 13 },
+  endedText: { color: "#ABA4B9", fontFamily: "DMSans_400Regular", fontSize: 11, marginTop: 3 },
+  muted: { flexDirection: "row", gap: 8, alignItems: "center", padding: 12, borderRadius: 12, backgroundColor: "rgba(243,201,105,0.10)" },
+  mutedText: { color: "#F3C969", fontFamily: "DMSans_500Medium", fontSize: 11 },
+  mobileNav: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: Platform.OS === "ios" ? 82 : 68,
+    paddingBottom: Platform.OS === "ios" ? 15 : 3,
+    borderTopWidth: 1,
+    borderTopColor: "#302C38",
+    backgroundColor: "rgba(16,14,20,0.92)",
+    flexDirection: "row",
+    justifyContent: "space-around",
+    alignItems: "center",
+    zIndex: 10,
+  },
+  mobileNavItem: { width: 90, alignItems: "center", gap: 2 },
+  mobileNavText: { color: "#A39BAF", fontFamily: "DMSans_500Medium", fontSize: 9 },
+  mobileNavTextActive: { color: "#D8CDF8" },
+  modalBackdrop: { flex: 1, backgroundColor: "rgba(7,5,12,0.68)", justifyContent: "center", padding: 22 },
+  feedbackCard: { width: "100%", maxWidth: 480, alignSelf: "center", padding: 22, borderRadius: 18, backgroundColor: "#18161C", borderWidth: 1, borderColor: "#302C38", gap: 13 },
+  ratingRow: { flexDirection: "row", gap: 8 },
+  rating: { width: 38, height: 38, borderRadius: 19, backgroundColor: "#25222B", alignItems: "center", justifyContent: "center" },
+  ratingSelected: { backgroundColor: "#755BD0" },
+  ratingText: { color: "#F5F2FA", fontFamily: "DMSans_700Bold" },
+  comment: { height: 80, paddingTop: 12, textAlignVertical: "top" },
+  modalActions: { flexDirection: "row", gap: 10, marginTop: 4 },
+  leave: { minHeight: 44, paddingHorizontal: 16, borderRadius: 11, justifyContent: "center", alignItems: "center", backgroundColor: "rgba(239,92,117,0.12)", flex: 1 },
+  leaveText: { color: "#F38A9B", fontFamily: "DMSans_700Bold", fontSize: 12 },
 });
