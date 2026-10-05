@@ -155,8 +155,8 @@ class MeetingSession:
         self.task: asyncio.Task[None] | None = None
         self.ending = False
         # Translation is deliberately decoupled from the live transcription
-        # worker. Source captions must reach both clients immediately; these
-        # tasks fill in Tamil asynchronously and are awaited before final save.
+        # worker. The source is retained privately until its Tamil translation
+        # is ready, then one complete line is sent to every client.
         self.translation_tasks: set[asyncio.Task[None]] = set()
         # Keep live translation requests ordered. Sending one Gemini request
         # for every overlapping audio chunk at once can trigger throttling and
@@ -388,10 +388,8 @@ class MeetingSession:
                     segment = self._canonical_segment(segment)
                     published.append(segment)
                     state.preview_segments.append(segment)
-                    self.record.segments.append(segment)
-                    await self._broadcast_segment(segment)
                     logger.info(
-                        "meeting_source_published meeting_id=%s segment_id=%s sequence=%s language=%s",
+                        "meeting_source_ready meeting_id=%s segment_id=%s sequence=%s language=%s",
                         self.record.id,
                         segment.segment_id,
                         segment.sequence,
@@ -483,6 +481,12 @@ class MeetingSession:
                         ):
                             state.preview_segments[index] = updated
                             break
+                # A client must never have to combine a source event with a
+                # later translation event. Publish a single complete result so
+                # organizer and attendee render exactly the same Tamil/source
+                # pair as one live line.
+                if not any(saved.segment_id == source.segment_id for saved in self.record.segments):
+                    self.record.segments.append(updated)
                 await self._broadcast_translation(updated)
                 logger.info(
                     "meeting_translation_published meeting_id=%s segment_id=%s sequence=%s translation_ms=%.1f",

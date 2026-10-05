@@ -40,10 +40,10 @@ class Settings(BaseSettings):
     # Gemini Live accepts small continuous PCM frames. The retained full
     # recording is still transcribed after Stop for accuracy and diarization.
     live_stream_chunk_ms: int = 100
-    # Meeting/LiveKit audio uses larger overlapping windows so Gemini has
-    # enough context to recognize Sinhala, Tamil, and English accurately.
-    live_chunk_seconds: float = 4.0
-    live_chunk_overlap_seconds: float = 0.8
+    # Keep meeting captions responsive: a short window is sent while people
+    # speak, while a small overlap still gives Gemini enough sentence context.
+    live_chunk_seconds: float = 2.5
+    live_chunk_overlap_seconds: float = 0.4
     live_stop_preview_grace_seconds: float = 8.0
     live_preview_queue_size: int = 50
     live_silence_rms_threshold: float = 20.0
