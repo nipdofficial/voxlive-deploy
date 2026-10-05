@@ -415,6 +415,19 @@ class GeminiService:
                 item.model_copy(update={"translated_text": translated})
                 for item, translated in zip(normalized, translations, strict=True)
             ]
+        elif translate_to == Language.tamil and normalized and any(
+            not item.translated_text
+            or not has_expected_script(item.translated_text, SpokenLanguage.tamil)
+            for item in normalized
+        ):
+            # Structured live responses may include an embedded translation.
+            # Re-run it through the guarded translator if that field is absent
+            # or contains another Indic script.
+            translations = await self.translate_segments(normalized, translate_to)
+            normalized = [
+                item.model_copy(update={"translated_text": translated})
+                for item, translated in zip(normalized, translations, strict=True)
+            ]
         if timestamp_offset:
             normalized = [
                 item.model_copy(
