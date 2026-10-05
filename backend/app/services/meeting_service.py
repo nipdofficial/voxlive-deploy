@@ -355,25 +355,33 @@ class MeetingSession:
             async for event in stream:
                 if self.ending:
                     break
-                data = bytes(event.frame.data)
-                state.append_audio(data)
-                state.pending.extend(data)
-                while len(state.pending) >= chunk_bytes:
-                    chunk = bytes(state.pending[:chunk_bytes])
-                    offset = state.start_offset + state.queued_bytes / (SAMPLE_RATE * 2)
-                    commit_after = (
-                        0.0
-                        if state.first_chunk
-                        else offset + settings.live_chunk_overlap_seconds
-                    )
-                    await state.queue.put((chunk, offset, commit_after))
-                    del state.pending[:advance_bytes]
-                    state.queued_bytes += advance_bytes
-                    state.first_chunk = False
+                await self.ingest_pcm(state, bytes(event.frame.data))
         except Exception as exc:
             state.warnings.append(f"{state.display_name} audio track failed: {exc}")
         finally:
             await stream.aclose()
+
+    async def ingest_pcm(self, state: TrackState, data: bytes) -> None:
+        """Accept normalized 16 kHz mono PCM from LiveKit or the organizer socket."""
+        if self.ending or not data:
+            return
+        settings = get_settings()
+        chunk_bytes = int(settings.live_chunk_seconds * SAMPLE_RATE * 2)
+        overlap_bytes = min(
+            chunk_bytes // 2,
+            int(settings.live_chunk_overlap_seconds * SAMPLE_RATE * 2),
+        )
+        advance_bytes = chunk_bytes - overlap_bytes
+        state.append_audio(data)
+        state.pending.extend(data)
+        while len(state.pending) >= chunk_bytes:
+            chunk = bytes(state.pending[:chunk_bytes])
+            offset = state.start_offset + state.queued_bytes / (SAMPLE_RATE * 2)
+            commit_after = 0.0 if state.first_chunk else offset + settings.live_chunk_overlap_seconds
+            await state.queue.put((chunk, offset, commit_after))
+            del state.pending[:advance_bytes]
+            state.queued_bytes += advance_bytes
+            state.first_chunk = False
 
     async def _transcribe_chunks(self, state: TrackState) -> None:
         gemini = GeminiService()

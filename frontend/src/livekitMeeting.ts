@@ -14,6 +14,8 @@ export type MeetingCallbacks = {
 
 export type MeetingConnectOptions = {
   publishMicrophone: boolean;
+  /** Host can broadcast mute state while audio uses the secure capture socket. */
+  notifyMicState?: boolean;
   /** Attendees receive transcript data only and must not play organizer audio. */
   subscribeAudio?: boolean;
 };

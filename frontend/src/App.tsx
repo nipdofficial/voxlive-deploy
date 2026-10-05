@@ -37,7 +37,7 @@ import {
   useFonts,
 } from "@expo-google-fonts/dm-sans";
 
-import { cancelTranscription, createMeeting, deleteTranscript, endMeeting, generateTranscriptSummary, getHistory, getTranscript, joinMeeting, renameTranscriptSpeaker, retryTranscription, startMeeting as startMeetingApi, submitAudio, translateTranscript, updateMeetingLanguage, updateTranscript, WS_URL } from "./api";
+import { API_URL, cancelTranscription, createMeeting, deleteTranscript, endMeeting, generateTranscriptSummary, getHistory, getTranscript, joinMeeting, renameTranscriptSpeaker, retryTranscription, startMeeting as startMeetingApi, submitAudio, translateTranscript, updateMeetingLanguage, updateTranscript, WS_URL } from "./api";
 import type { Language, MeetingConnection, ProcessingStage, Segment, SessionType, TranscriptRecord, TranscriptSummary } from "./types";
 import type { MeetingClient, MeetingParticipantView } from "./livekitMeeting";
 import { startWebAudioStream, type WebAudioStream } from "./webAudioStream";
@@ -106,6 +106,7 @@ const PROCESSING_LABELS: Record<ProcessingStage, string> = {
 };
 
 const LIVE_CONNECTION_TIMEOUT_MS = 12_000;
+const MEETING_AUDIO_CONNECTION_TIMEOUT_MS = 12_000;
 
 function recordStatusLabel(record: Pick<TranscriptRecord, "status" | "processing_stage">) {
   if (record.status === "processing" && record.processing_stage) {
@@ -663,6 +664,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
   const [meetingMicEnabled, setMeetingMicEnabled] = useState(true);
   const [meetingSpeakerMuted, setMeetingSpeakerMuted] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
+  const meetingAudioSocketRef = useRef<WebSocket | null>(null);
   const webAudioRef = useRef<WebAudioStream | null>(null);
   const meetingClientRef = useRef<MeetingClient | null>(null);
   const historyScrollRef = useRef<ScrollView>(null);
@@ -682,7 +684,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
   }, [isDark]);
 
   const onAudioBuffer = useCallback((buffer: { data: ArrayBuffer }) => {
-    const socket = socketRef.current;
+    const socket = meetingAudioSocketRef.current ?? socketRef.current;
     if (socket?.readyState === WebSocket.OPEN) socket.send(buffer.data);
     const samples = new Int16Array(buffer.data);
     let sumSquares = 0;
@@ -705,8 +707,73 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
     liveAudio.stream?.stop();
   }, [liveAudio.stream]);
 
+  const stopMeetingAudioCapture = useCallback(async () => {
+    await stopAudioCapture();
+    const socket = meetingAudioSocketRef.current;
+    meetingAudioSocketRef.current = null;
+    if (socket && socket.readyState < WebSocket.CLOSING) socket.close();
+  }, [stopAudioCapture]);
+
+  const startMeetingAudioCapture = useCallback(async (connection: MeetingConnection) => {
+    if (!connection.is_host || !connection.host_secret) return;
+    await new Promise<void>((resolve, reject) => {
+      const endpoint = `${API_URL.replace(/^http/, "ws")}/meetings/${encodeURIComponent(connection.room_code)}/audio`;
+      const socket = new WebSocket(endpoint);
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        socket.close();
+        reject(new Error("The meeting audio service did not become ready"));
+      }, MEETING_AUDIO_CONNECTION_TIMEOUT_MS);
+      const finish = (error?: Error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (error) reject(error); else resolve();
+      };
+      socket.onopen = () => socket.send(JSON.stringify({
+        host_secret: connection.host_secret,
+        participant_identity: connection.participant_identity,
+      }));
+      socket.onmessage = (event) => {
+        try {
+          const message = JSON.parse(String(event.data));
+          if (message.type === "ready") {
+            meetingAudioSocketRef.current = socket;
+            void (async () => {
+              if (Platform.OS === "web") {
+                webAudioRef.current = await startWebAudioStream((buffer, level) => {
+                  setVoiceIntensity((current) => current * 0.35 + level * 0.65);
+                  onAudioBuffer({ data: buffer });
+                });
+              } else {
+                await liveAudio.stream.start();
+              }
+              finish();
+            })().catch((caught) => {
+              meetingAudioSocketRef.current = null;
+              socket.close();
+              finish(caught instanceof Error ? caught : new Error("Microphone capture failed"));
+            });
+          } else if (message.type === "error") {
+            finish(new Error(String(message.message || "Meeting audio was rejected")));
+          }
+        } catch {
+          finish(new Error("Invalid response from the meeting audio service"));
+        }
+      };
+      socket.onerror = () => finish(new Error("Could not connect the microphone to the meeting"));
+      socket.onclose = () => {
+        if (meetingAudioSocketRef.current === socket) meetingAudioSocketRef.current = null;
+        if (!settled) finish(new Error("Meeting audio connection closed before it was ready"));
+      };
+    });
+  }, [liveAudio.stream, onAudioBuffer]);
+
   useEffect(() => () => {
     socketRef.current?.close();
+    meetingAudioSocketRef.current?.close();
     void stopAudioCapture();
     void meetingClientRef.current?.disconnect();
     if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
@@ -1094,8 +1161,9 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
       onSpeakingChange: (speaking) => setVoiceIntensity(speaking ? 0.28 : 0),
       onMicStateChange: (state) => setMeetingSpeakerMuted(state.muted),
       onError: (error) => Alert.alert("Meeting", error.message),
-    }, { publishMicrophone: connection.is_host });
+    }, { publishMicrophone: false, notifyMicState: connection.is_host });
     meetingClientRef.current = client;
+    if (connection.is_host) await startMeetingAudioCapture(connection);
     setMeetingMicEnabled(connection.is_host);
     if (connection.language) setLanguage(connection.language);
     setActive(true);
@@ -1111,6 +1179,23 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
       setStatus("connected");
     } catch (error) {
       Alert.alert("Could not change language", error instanceof Error ? error.message : "Session language update failed");
+    }
+  };
+
+  const toggleMeetingMicrophone = async () => {
+    const connection = meetingConnection;
+    if (!connection?.is_host) return;
+    const enabled = !meetingMicEnabled;
+    try {
+      if (enabled) {
+        await startMeetingAudioCapture(connection);
+      } else {
+        await stopMeetingAudioCapture();
+      }
+      await meetingClientRef.current?.setMicrophoneEnabled(enabled);
+      setMeetingMicEnabled(enabled);
+    } catch (error) {
+      Alert.alert("Microphone", error instanceof Error ? error.message : "Could not change microphone state");
     }
   };
 
@@ -1144,6 +1229,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
     setActive(false);
     setBusy(connection.is_host);
     setStatus(connection.is_host ? "finalizing meeting" : "left meeting");
+    if (connection.is_host) await stopMeetingAudioCapture();
     if (connection.is_host && connection.host_secret) {
       const result = await endMeeting(connection.room_code, connection.host_secret);
       setCurrentRecordId(result.id);
@@ -1495,7 +1581,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
                   </View>
                   <View style={styles.autoLanguageActions}>
                     <View style={styles.autoLanguageBadge}><Text style={styles.autoLanguageBadgeText}>{language === "Mixed" ? "AUTO" : "SET"}</Text></View>
-                    {meetingConnection?.is_host && active ? <Pressable accessibilityRole="button" accessibilityLabel={meetingMicEnabled ? "Mute microphone" : "Unmute microphone"} onPress={() => void meetingClientRef.current?.setMicrophoneEnabled(!meetingMicEnabled).then(() => setMeetingMicEnabled((current) => !current))} style={[styles.micToggleButton, !meetingMicEnabled && styles.micToggleButtonMuted]}><Feather name={meetingMicEnabled ? "mic" : "mic-off"} size={15} color="white" /><Text style={styles.micToggleText}>{meetingMicEnabled ? "Mute mic" : "Unmute mic"}</Text></Pressable> : null}
+                    {meetingConnection?.is_host && active ? <Pressable accessibilityRole="button" accessibilityLabel={meetingMicEnabled ? "Mute microphone" : "Unmute microphone"} onPress={() => void toggleMeetingMicrophone()} style={[styles.micToggleButton, !meetingMicEnabled && styles.micToggleButtonMuted]}><Feather name={meetingMicEnabled ? "mic" : "mic-off"} size={15} color="white" /><Text style={styles.micToggleText}>{meetingMicEnabled ? "Mute mic" : "Unmute mic"}</Text></Pressable> : null}
                   </View>
                 </View>
               </View>

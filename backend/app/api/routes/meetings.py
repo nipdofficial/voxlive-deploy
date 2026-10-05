@@ -1,7 +1,7 @@
 import hmac
 import io
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import Response
 
 from app.api.routes.history import save_record
@@ -127,6 +127,43 @@ async def start_meeting(code: str, body: MeetingStart) -> SessionInfo:
             if task.cancelled() or task.exception() else None
         )
     return _session_info(session)
+
+
+@router.websocket("/{code}/audio")
+async def stream_organizer_audio(code: str, websocket: WebSocket) -> None:
+    """Receive the organizer's 16 kHz PCM capture for a managed meeting.
+
+    LiveKit remains responsible for room presence and distributing transcript
+    events. Capturing PCM here makes the transcription path deterministic even
+    when a browser or mobile network does not expose its published WebRTC track
+    to a hidden subscriber quickly enough.
+    """
+    await websocket.accept()
+    try:
+        hello = await websocket.receive_json()
+        session = meeting_registry.get(code)
+        host_secret = str(hello.get("host_secret") or "") if isinstance(hello, dict) else ""
+        identity = str(hello.get("participant_identity") or "") if isinstance(hello, dict) else ""
+        if not session or session.ending or not session.started:
+            await websocket.send_json({"type": "error", "message": "Session is not live"})
+            await websocket.close(code=1008)
+            return
+        if not hmac.compare_digest(session.host_secret, host_secret):
+            await websocket.send_json({"type": "error", "message": "Only the organizer can provide audio"})
+            await websocket.close(code=1008)
+            return
+        participant = next((item for item in session.record.participants if item.identity == identity), None)
+        if participant is None:
+            await websocket.send_json({"type": "error", "message": "Organizer identity is not in this session"})
+            await websocket.close(code=1008)
+            return
+        state = session._state_for(participant.identity, participant.display_name, True)
+        await websocket.send_json({"type": "ready"})
+        while not session.ending:
+            data = await websocket.receive_bytes()
+            await session.ingest_pcm(state, data)
+    except WebSocketDisconnect:
+        return
 
 
 @router.get("/{code}/qr", response_class=Response)

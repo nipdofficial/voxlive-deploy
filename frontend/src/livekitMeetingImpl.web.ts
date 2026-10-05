@@ -97,7 +97,7 @@ export const connectMeeting: ConnectMeeting = async (url, token, callbacks, opti
   return {
     setMicrophoneEnabled: async (enabled: boolean) => {
       await room.localParticipant.setMicrophoneEnabled(enabled);
-      if (options.publishMicrophone) {
+      if (options.publishMicrophone || options.notifyMicState) {
         const payload = new TextEncoder().encode(JSON.stringify({ type: "mic", identity: room.localParticipant.identity, name: room.localParticipant.name || "Organizer", muted: !enabled }));
         await room.localParticipant.publishData(payload, { reliable: true, topic: "meeting.mic" });
       }
