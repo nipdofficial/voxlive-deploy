@@ -1336,6 +1336,15 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
             setActive(false);
             setBusy(false);
           }}
+          onStartCreatedSession={async (connection, title) => {
+            await startMeetingApi(connection.room_code, connection.host_secret ?? "");
+            setMeetingName(connection.display_name);
+            setMeetingTitle(title);
+            setLanguage(connection.language ?? "Mixed");
+            setSessionType("Live");
+            setTab("new");
+            await connectToMeeting(connection, title);
+          }}
         />
       ) : tab === "history" ? (
         <ScrollView key="history" ref={historyScrollRef} onContentSizeChange={() => historyScrollRef.current?.scrollTo({ y: 0, animated: false })} contentContainerStyle={styles.historyPage}>
@@ -1448,6 +1457,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
                   <Text style={styles.organizerSessionEyebrow}>ORGANIZER SESSION</Text>
                   <Text numberOfLines={1} style={styles.organizerSessionTitle}>{meetingTitle || "Live session"}</Text>
                   <Text style={styles.organizerSessionMeta}>Room {meetingConnection.room_code} · {language} input</Text>
+                  <Text style={styles.organizerSessionMeta}>Speaker - {meetingConnection.display_name}</Text>
                 </View>
               </View>
               <View style={styles.organizerSessionStats}>

@@ -82,4 +82,8 @@ export interface SessionInfo {
   is_active: boolean;
   is_started?: boolean;
   created_at: string;
+  scheduled_start?: string | null;
+  scheduled_end?: string | null;
+  speaker_name?: string | null;
+  status?: "upcoming" | "ready" | "live" | "ended";
 }

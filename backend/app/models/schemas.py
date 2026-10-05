@@ -108,6 +108,8 @@ class TranscriptRecord(BaseModel):
     audio_filename: str | None = None
     participant_audio: dict[str, str] = Field(default_factory=dict)
     participants: list[MeetingParticipant] = Field(default_factory=list)
+    scheduled_start: datetime | None = None
+    scheduled_end: datetime | None = None
     feedback: list[MeetingFeedback] = Field(default_factory=list)
     summary: TranscriptSummary | None = None
     summary_source_hash: str | None = None
@@ -140,6 +142,18 @@ class MeetingCreate(BaseModel):
     shared_mic: bool = False
     title: str = Field(default="Online meeting", min_length=1, max_length=200)
     max_participants: int = Field(default=0, ge=0, description="0 = unlimited")
+    scheduled_start: datetime | None = None
+    scheduled_end: datetime | None = None
+
+    @model_validator(mode="after")
+    def validate_schedule(self) -> "MeetingCreate":
+        if self.scheduled_start and self.scheduled_start.tzinfo is None:
+            raise ValueError("scheduled_start must include a timezone")
+        if self.scheduled_end and self.scheduled_end.tzinfo is None:
+            raise ValueError("scheduled_end must include a timezone")
+        if self.scheduled_start and self.scheduled_end and self.scheduled_end <= self.scheduled_start:
+            raise ValueError("scheduled_end must be after scheduled_start")
+        return self
 
 
 class MeetingJoin(BaseModel):
@@ -169,6 +183,10 @@ class SessionInfo(BaseModel):
     is_active: bool
     is_started: bool = False
     created_at: datetime
+    scheduled_start: datetime | None = None
+    scheduled_end: datetime | None = None
+    speaker_name: str | None = None
+    status: str = "ready"
 
 
 class MeetingEnd(BaseModel):

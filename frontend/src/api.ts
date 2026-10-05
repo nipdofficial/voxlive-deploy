@@ -149,6 +149,8 @@ export function createMeeting(
   sharedMic: boolean,
   title: string = "Online meeting",
   maxParticipants: number = 0,
+  scheduledStart?: string,
+  scheduledEnd?: string,
 ): Promise<MeetingConnection> {
   return meetingRequest("/meetings", {
     display_name: displayName,
@@ -156,6 +158,8 @@ export function createMeeting(
     shared_mic: sharedMic,
     title,
     max_participants: maxParticipants,
+    scheduled_start: scheduledStart || null,
+    scheduled_end: scheduledEnd || null,
   });
 }
 

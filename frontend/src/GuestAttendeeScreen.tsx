@@ -56,7 +56,7 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
   useEffect(() => {
     void getSessionInfo(roomCode).then((session) => {
       setInfo(session);
-      setStatus(session.is_started ? session.is_active ? "ready" : "ended" : "waiting");
+      setStatus(session.status === "upcoming" ? "upcoming" : session.is_started ? session.is_active ? "ready" : "ended" : "waiting");
     }).catch((caught) => {
       setStatus("error");
       setError(caught instanceof Error ? caught.message : "This session is not available");
@@ -79,7 +79,7 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
     const timer = setInterval(() => {
       void getSessionInfo(roomCode).then(async (session) => {
         setInfo(session);
-        setStatus(session.is_started ? session.is_active ? (joined ? "connected" : "ready") : "ended" : "waiting");
+        setStatus(session.status === "upcoming" ? "upcoming" : session.is_started ? session.is_active ? (joined ? "connected" : "ready") : "ended" : "waiting");
         if (session.is_started && !session.is_active) {
           setStatus("ended");
           await client?.disconnect();
@@ -189,6 +189,7 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
           <Text style={styles.eyebrow}>QR ATTENDEE ACCESS</Text>
           <Text style={styles.title}>{info?.title ?? "Live session"}</Text>
           <Text style={styles.subtitle}>Room {roomCode}</Text>
+          {info?.speaker_name ? <Text style={styles.speakerLabel}>Speaker - {info.speaker_name}</Text> : null}
           <View style={styles.stats}>
             <Text style={styles.stat}>{joined ? "● LIVE" : status.toUpperCase()}</Text>
             <Text style={styles.stat}>{participants.length} connected</Text>
@@ -201,8 +202,8 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
             <Text style={styles.cardTitle}>Join this live transcript</Text>
             <Text style={styles.cardHint}>Enter your display name to continue.</Text>
             <TextInput value={name} onChangeText={setName} placeholder="Your name" placeholderTextColor="#81798F" style={styles.input} autoCapitalize="words" />
-            <Pressable onPress={() => void join()} disabled={status === "loading" || status === "waiting" || status === "joining" || status === "ended" || !name.trim()} style={[styles.primary, (!name.trim() || status === "waiting" || status === "joining" || status === "ended") && { opacity: 0.5 }]}>
-              {status === "joining" ? <ActivityIndicator color="white" /> : <><Feather name="log-in" size={17} color="white" /><Text style={styles.primaryText}>{status === "ended" ? "Session ended" : status === "waiting" ? "Waiting for organizer" : "Join live session"}</Text></>}
+            <Pressable onPress={() => void join()} disabled={status === "loading" || status === "waiting" || status === "upcoming" || status === "joining" || status === "ended" || !name.trim()} style={[styles.primary, (!name.trim() || status === "waiting" || status === "upcoming" || status === "joining" || status === "ended") && { opacity: 0.5 }]}>
+              {status === "joining" ? <ActivityIndicator color="white" /> : <><Feather name="log-in" size={17} color="white" /><Text style={styles.primaryText}>{status === "ended" ? "Session ended" : status === "upcoming" ? "Upcoming meeting" : status === "waiting" ? "Waiting for organizer" : "Join live session"}</Text></>}
             </Pressable>
           </View>
         ) : (
@@ -224,7 +225,7 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
                       {segment.translated_text ? <><Text style={styles.translation}>{segment.translated_text}</Text><Text style={styles.text}>{segment.text}</Text></> : <Text style={styles.text}>{segment.text}</Text>}
                     </View>
                   </View>
-                )) : <Text style={styles.waiting}>Waiting for live speech…</Text>}
+                )) : <Text style={styles.waiting}>{status === "ended" ? "No transcript was captured for this session." : "Waiting for live speech…"}</Text>}
               </ScrollView>
             </View>
           </>
@@ -286,6 +287,7 @@ const createStyles = () => StyleSheet.create({
   eyebrow: { color: "#8063D1", fontFamily: "DMSans_700Bold", fontSize: 9, letterSpacing: 1.8 },
   title: { color: "#F5F2FA", fontFamily: "DMSans_700Bold", fontSize: 28, marginTop: 8 },
   subtitle: { color: "#ABA4B9", fontFamily: "DMSans_400Regular", fontSize: 12, marginTop: 6 },
+  speakerLabel: { color: "#CDBDFF", fontFamily: "DMSans_600SemiBold", fontSize: 12, marginTop: 8 },
   stats: { flexDirection: "row", flexWrap: "wrap", gap: 9, marginTop: 18 },
   stat: { color: "#D8CDF8", backgroundColor: "rgba(159,122,234,0.16)", paddingHorizontal: 11, paddingVertical: 8, borderRadius: 11, fontFamily: "DMSans_700Bold", fontSize: 11 },
   joinCard: { padding: 22, borderRadius: 18, backgroundColor: "#18161C", borderWidth: 1, borderColor: "#302C38", gap: 11 },

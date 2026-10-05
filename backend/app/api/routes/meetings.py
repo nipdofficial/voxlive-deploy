@@ -56,6 +56,10 @@ def _session_info(session) -> SessionInfo:
         is_active=session.started and not session.ending,
         is_started=session.started,
         created_at=session.created_at,
+        scheduled_start=session.scheduled_start,
+        scheduled_end=session.scheduled_end,
+        speaker_name=session.record.participants[0].display_name if session.record.participants else None,
+        status=session.status,
     )
 
 
@@ -74,6 +78,8 @@ async def create_meeting(body: MeetingCreate) -> MeetingConnection:
         session_type=SessionType.meeting,
         diarization=body.shared_mic,
         status=JobStatus.queued,
+        scheduled_start=body.scheduled_start,
+        scheduled_end=body.scheduled_end,
     )
     await save_record(record)
     session = await meeting_registry.create(
@@ -81,6 +87,8 @@ async def create_meeting(body: MeetingCreate) -> MeetingConnection:
         body.language,
         title=body.title,
         max_participants=body.max_participants,
+        scheduled_start=body.scheduled_start,
+        scheduled_end=body.scheduled_end,
     )
     identity = participant_identity()
     participant = session.add_participant(identity, display_name, body.shared_mic)

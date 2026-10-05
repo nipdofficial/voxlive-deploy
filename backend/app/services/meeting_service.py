@@ -5,7 +5,7 @@ import secrets
 import time
 import wave
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -132,6 +132,8 @@ class MeetingSession:
         language: Language,
         title: str = "Online meeting",
         max_participants: int = 0,
+        scheduled_start: datetime | None = None,
+        scheduled_end: datetime | None = None,
     ) -> None:
         self.code = code
         self.room_name = f"helascribe-{code.lower()}"
@@ -140,6 +142,8 @@ class MeetingSession:
         self.language = language
         self.title = title
         self.max_participants = max_participants
+        self.scheduled_start = scheduled_start
+        self.scheduled_end = scheduled_end
         self.started_at = time.monotonic()
         self.created_at = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
         self.started = False
@@ -160,6 +164,16 @@ class MeetingSession:
     @property
     def participant_count(self) -> int:
         return len(self.record.participants)
+
+    @property
+    def status(self) -> str:
+        if self.ending:
+            return "ended"
+        if self.started:
+            return "live"
+        if self.scheduled_start and self.scheduled_start > datetime.now(timezone.utc):
+            return "upcoming"
+        return "ready"
 
     def add_participant(
         self, identity: str, display_name: str, shared_mic: bool
@@ -604,6 +618,8 @@ class MeetingRegistry:
         language: Language,
         title: str = "Online meeting",
         max_participants: int = 0,
+        scheduled_start: datetime | None = None,
+        scheduled_end: datetime | None = None,
     ) -> MeetingSession:
         async with self.lock:
             code = generate_room_code()
@@ -616,6 +632,8 @@ class MeetingRegistry:
                 language,
                 title=title,
                 max_participants=max_participants,
+                scheduled_start=scheduled_start,
+                scheduled_end=scheduled_end,
             )
             self.sessions[code] = session
         return session
