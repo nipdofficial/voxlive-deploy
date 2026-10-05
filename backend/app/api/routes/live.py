@@ -303,6 +303,7 @@ async def live_transcription(websocket: WebSocket) -> None:
     translation_tasks: set[asyncio.Task[None]] = set()
     live_connect = None
     live_entered = False
+    fallback_active = False
     try:
         start = LiveStart.model_validate(await websocket.receive_json())
         record = TranscriptRecord(
@@ -403,6 +404,7 @@ async def live_transcription(websocket: WebSocket) -> None:
                     translation_tasks.discard(current_task)
 
         async def send_live_audio() -> None:
+            nonlocal fallback_active
             warning_sent = False
             while True:
                 queued = await queue.get()
@@ -420,6 +422,7 @@ async def live_transcription(websocket: WebSocket) -> None:
                 except asyncio.CancelledError:
                     return
                 except Exception as exc:
+                    fallback_active = True
                     logger.exception("Gemini Live audio send failed")
                     record.error = f"Live API unavailable; chunk preview fallback active: {exc}"
                     await save_record(record)
@@ -437,7 +440,7 @@ async def live_transcription(websocket: WebSocket) -> None:
                     # fallback instead of killing the recording WebSocket.
                     fallback_buffer = bytearray(chunk)
                     fallback_offset = _offset
-                    fallback_chunk_bytes = start.sample_rate * 2 * 4
+                    fallback_chunk_bytes = start.sample_rate * 2 * 1
                     while True:
                         next_item = await queue.get()
                         if next_item is None:
@@ -472,9 +475,11 @@ async def live_transcription(websocket: WebSocket) -> None:
             await save_record(record)
 
         async def send_chunk_preview_fallback() -> None:
+            nonlocal fallback_active
+            fallback_active = True
             fallback_buffer = bytearray()
             fallback_offset = 0.0
-            fallback_chunk_bytes = start.sample_rate * 2 * 4
+            fallback_chunk_bytes = start.sample_rate * 2 * 1
             while True:
                 queued = await queue.get()
                 if queued is None:
@@ -571,9 +576,14 @@ async def live_transcription(websocket: WebSocket) -> None:
                     # The authoritative full-audio pass will cover the entire
                     # recording. Give only the in-flight preview a short chance
                     # to finish, then stop waiting for stale preview calls.
-                    pending.clear()
-                    while not queue.empty():
-                        queue.get_nowait()
+                    if fallback_active:
+                        if pending:
+                            await queue.put((bytes(pending), queued_preview_offset))
+                        pending.clear()
+                    else:
+                        pending.clear()
+                        while not queue.empty():
+                            queue.get_nowait()
                     await queue.put(None)
                     try:
                         await asyncio.wait_for(
