@@ -5,6 +5,7 @@ from app.services.gemini_service import (
     _load_response_json,
     bound_segments_to_duration,
     detect_script_language,
+    has_expected_script,
     normalize_language_segments,
 )
 
@@ -51,6 +52,17 @@ def test_monolingual_mode_filters_other_scripts() -> None:
 
     assert [item.text for item in result] == ["தமிழ்"]
     assert result[0].detected_language == SpokenLanguage.tamil
+
+
+def test_strict_modes_reject_transliteration_and_wrong_indic_scripts() -> None:
+    result = normalize_language_segments(
+        [segment("एक नमस्ते"), segment("vanakkam"), segment("සිංහල වාක්‍යයක්")],
+        Language.sinhala,
+    )
+
+    assert [item.text for item in result] == ["සිංහල වාක්‍යයක්"]
+    assert has_expected_script(result[0].text, SpokenLanguage.sinhala)
+    assert not has_expected_script("नमस्ते", SpokenLanguage.sinhala)
 
 
 def test_mixed_mode_labels_each_native_script() -> None:
