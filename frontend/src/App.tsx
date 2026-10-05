@@ -381,6 +381,7 @@ function TranscriptPanel({
   onSaveSummary,
   onUpdateRecord,
   onRenameSpeaker,
+  errorMessage,
   styles,
 }: {
   segments: Segment[];
@@ -405,6 +406,7 @@ function TranscriptPanel({
   onRenameSpeaker?: (record: TranscriptRecord, oldName: string, newName: string) => void;
   onTranslate?: (record: TranscriptRecord, target: Language) => void;
   translating?: boolean;
+  errorMessage?: string | null;
   styles: AppStyles;
 }) {
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
@@ -440,6 +442,8 @@ function TranscriptPanel({
         <View style={styles.timeline} />
         <Text style={styles.timeText}>{active ? "REC" : "READY"}</Text>
       </View>
+
+      {errorMessage ? <View style={{ marginHorizontal: 22, marginTop: 12, padding: 12, borderRadius: 12, backgroundColor: "rgba(229,91,112,0.12)", borderWidth: 1, borderColor: "rgba(229,91,112,0.28)" }}><Text style={{ color: "#F29AAA", fontSize: 12, lineHeight: 18 }}>{errorMessage}</Text></View> : null}
 
       {exportRecord && exportRecord.status === "completed" && transcriptText(exportRecord) ? (
         <View style={styles.exportActions}>
@@ -663,6 +667,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
   const [meetingParticipants, setMeetingParticipants] = useState<MeetingParticipantView[]>([]);
   const [meetingMicEnabled, setMeetingMicEnabled] = useState(true);
   const [meetingSpeakerMuted, setMeetingSpeakerMuted] = useState(false);
+  const [meetingError, setMeetingError] = useState<string | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const meetingAudioSocketRef = useRef<WebSocket | null>(null);
   const webAudioRef = useRef<WebAudioStream | null>(null);
@@ -707,6 +712,8 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
     }
     liveAudio.stream?.stop();
   }, [liveAudio.stream]);
+  const stopAudioCaptureRef = useRef(stopAudioCapture);
+  stopAudioCaptureRef.current = stopAudioCapture;
 
   const releasePreparedMeetingMic = useCallback(() => {
     const stream = preparedMeetingMicRef.current;
@@ -790,14 +797,17 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
     });
   }, [liveAudio.stream, onAudioBuffer, releasePreparedMeetingMic]);
 
+  // This cleanup belongs to unmount only. The native audio hook can replace
+  // its stream object as state changes; binding cleanup to that object closed
+  // an active meeting socket on an ordinary render.
   useEffect(() => () => {
     socketRef.current?.close();
     meetingAudioSocketRef.current?.close();
     releasePreparedMeetingMic();
-    void stopAudioCapture();
+    void stopAudioCaptureRef.current();
     void meetingClientRef.current?.disconnect();
     if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
-  }, [releasePreparedMeetingMic, stopAudioCapture]);
+  }, []);
 
   useEffect(() => {
     if (!active) return;
@@ -1046,7 +1056,14 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
     const refreshLiveLines = async () => {
       try {
         const record = await getTranscript(meetingId);
-        if (cancelled || !record.segments.length) return;
+        if (cancelled) return;
+        if (record.error) {
+          const isCapacity = record.error.includes("429") || record.error.includes("RESOURCE_EXHAUSTED");
+          setMeetingError(isCapacity
+            ? "The speech service is temporarily busy. Audio is still being saved, and the full recording will be transcribed again when the meeting ends."
+            : record.error);
+        }
+        if (!record.segments.length) return;
         setSegments((current) => record.segments.reduce(
           (items, segment) => upsertLiveSegment(items, segment),
           current,
@@ -1194,6 +1211,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
     // "Live" routes Stop through the legacy WebSocket recorder and leaves
     // the actual meeting running/finalizing in the background.
     setSessionType("Meeting");
+    setMeetingError(null);
     setMeetingConnection(connection);
     setMeetingCode(connection.room_code);
     if (title) setMeetingTitle(title);
@@ -1341,8 +1359,9 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
 
   const handlePrimary = async () => {
     try {
+      if (meetingConnection?.is_host && active) return await stopMeeting();
+      if (meetingConnection?.is_host && !active && sessionType !== "Upload") return await startCreatedMeeting();
       if (sessionType === "Meeting") return active ? await stopMeeting() : await startMeeting(false);
-      if (meetingConnection?.is_host && !active && sessionType === "Live") return await startCreatedMeeting();
       if (active) return sessionType === "Live" || sessionType === "Record" ? await stopLive() : await stopMeeting();
       if (sessionType === "Upload") return await chooseUpload();
       if (sessionType === "Live" || sessionType === "Record") return await startLive();
@@ -1476,10 +1495,11 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
         <SessionManagementScreen
           isDark={isDark}
           onOpenCreatedSession={async (connection, title) => {
+            await prepareMeetingMicrophone();
             setMeetingName(connection.display_name);
             setMeetingTitle(title);
             setLanguage(connection.language ?? "Mixed");
-            setSessionType("Live");
+            setSessionType("Meeting");
             setTab("new");
             setMeetingConnection(connection);
             setMeetingParticipants([]);
@@ -1487,6 +1507,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
             setStatus("ready");
             setActive(false);
             setBusy(false);
+            await connectToMeeting(connection, title);
           }}
           onStartCreatedSession={async (connection, title) => {
             await prepareMeetingMicrophone();
@@ -1661,7 +1682,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
               <View style={styles.privacyRow}><Feather name="shield" size={13} color="#716C7F" /><Text style={styles.privacyText}>Your audio is encrypted in transit and never used to train public models.</Text></View>
             </View>
 
-            <TranscriptPanel segments={segments} interimText={interimText} interimLanguage={interimLanguage} active={active} status={status} processingStage={processingStage} duration={shownDuration} intensity={voiceIntensity} exportRecord={currentExportRecord} copied={copiedRecordId === currentRecordId} exportBusy={exporting?.id === currentRecordId ? exporting.kind : null} onCopy={(record) => void copyTranscript(record)} onSaveTranscript={(record) => void saveTranscript(record)} summarizing={summarizingRecordId === currentRecordId} summaryCopied={copiedSummaryRecordId === currentRecordId} onGenerateSummary={(record) => void generateSummary(record)} onCopySummary={(summary) => { if (currentRecordId) void copySummary(currentRecordId, summary); }} onSaveSummary={(record) => void saveSummary(record)} onUpdateRecord={(record, next) => void editTranscriptSegments(record, next)} onRenameSpeaker={(record, oldName, newName) => void renameSpeaker(record, oldName, newName)} onTranslate={(record, target) => void translateRecord(record, target)} translating={translatingRecordId === currentRecordId} styles={styles} />
+            <TranscriptPanel segments={segments} interimText={interimText} interimLanguage={interimLanguage} active={active} status={status} processingStage={processingStage} duration={shownDuration} intensity={voiceIntensity} exportRecord={currentExportRecord} copied={copiedRecordId === currentRecordId} exportBusy={exporting?.id === currentRecordId ? exporting.kind : null} onCopy={(record) => void copyTranscript(record)} onSaveTranscript={(record) => void saveTranscript(record)} summarizing={summarizingRecordId === currentRecordId} summaryCopied={copiedSummaryRecordId === currentRecordId} onGenerateSummary={(record) => void generateSummary(record)} onCopySummary={(summary) => { if (currentRecordId) void copySummary(currentRecordId, summary); }} onSaveSummary={(record) => void saveSummary(record)} onUpdateRecord={(record, next) => void editTranscriptSegments(record, next)} onRenameSpeaker={(record, oldName, newName) => void renameSpeaker(record, oldName, newName)} onTranslate={(record, target) => void translateRecord(record, target)} translating={translatingRecordId === currentRecordId} errorMessage={meetingError} styles={styles} />
           </View>
             </>
           )}

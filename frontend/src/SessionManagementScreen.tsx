@@ -21,7 +21,7 @@ import { createMeeting, getHistory, getSessionInfo, getSessionQrUrl } from "./ap
 import type { Language, MeetingConnection, SessionInfo, TranscriptRecord } from "./types";
 
 interface SessionManagementScreenProps {
-  onOpenCreatedSession: (connection: MeetingConnection, title: string) => void;
+  onOpenCreatedSession: (connection: MeetingConnection, title: string) => Promise<void>;
   onStartCreatedSession: (connection: MeetingConnection, title: string) => Promise<void>;
   isDark: boolean;
 }
@@ -264,9 +264,11 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
               style={[styles.primaryButton, { marginTop: 24 }, starting && { opacity: 0.6 }]}
               disabled={starting}
               onPress={() => {
-                if (activeStatus === "live") return void onOpenCreatedSession(activeSession.connection, activeSession.title);
                 setStarting(true);
-                void onStartCreatedSession(activeSession.connection, activeSession.title).finally(() => setStarting(false));
+                const action = activeStatus === "live" ? onOpenCreatedSession : onStartCreatedSession;
+                void action(activeSession.connection, activeSession.title)
+                  .catch((error) => Alert.alert("Meeting could not start", error instanceof Error ? error.message : "Please try again"))
+                  .finally(() => setStarting(false));
               }}
             >
               {starting ? <ActivityIndicator color="white" /> : <Feather name={activeStatus === "live" ? "mic" : "play-circle"} size={18} color="white" />}

@@ -398,12 +398,13 @@ class MeetingSession:
                     pcm_wav_bytes(chunk),
                     "audio/wav",
                     self.language,
-                    model=settings.gemini_batch_model,
+                    # A single multimodal call can transcribe and translate a
+                    # short line. This avoids the two-call burst that was
+                    # exhausting the preview transcription model's capacity.
+                    model=settings.gemini_text_model,
                     audio_duration_seconds=len(chunk) / (SAMPLE_RATE * 2),
                     request_timeout_seconds=settings.gemini_live_timeout_seconds,
-                    # Do not hold the live caption on the translation call.
-                    # The Tamil update is published by a separate task below.
-                    translate_to=None,
+                    translate_to=settings.target_language,
                     verify_mixed_language=False,
                     use_structured_mixed_model=False,
                 )
@@ -418,8 +419,12 @@ class MeetingSession:
                     if (segment.start + segment.end) / 2 < commit_after:
                         continue
                     segment = self._canonical_segment(segment)
+                    if segment.translated_text:
+                        segment = segment.model_copy(update={"is_final": True})
                     published.append(segment)
                     state.preview_segments.append(segment)
+                    if segment.is_final:
+                        self.record.segments.append(segment)
                     logger.info(
                         "meeting_source_ready meeting_id=%s segment_id=%s sequence=%s language=%s",
                         self.record.id,
@@ -428,14 +433,29 @@ class MeetingSession:
                         segment.detected_language.value if segment.detected_language else "Unknown",
                     )
                 if published:
-                    translation_task = asyncio.create_task(
-                        self._translate_preview_segments(published)
-                    )
-                    self.translation_tasks.add(translation_task)
-                    translation_task.add_done_callback(self.translation_tasks.discard)
+                    complete = [item for item in published if item.is_final and item.translated_text]
+                    for item in complete:
+                        await self._broadcast_translation(item)
+                    pending_translation = [item for item in published if item not in complete]
+                    if pending_translation:
+                        translation_task = asyncio.create_task(
+                            self._translate_preview_segments(pending_translation)
+                        )
+                        self.translation_tasks.add(translation_task)
+                        translation_task.add_done_callback(self.translation_tasks.discard)
+                self.record.duration_seconds = max(
+                    (track.duration for track in self.states.values()), default=0.0
+                )
                 await save_record(self.record)
             except Exception as exc:
                 state.warnings.append(f"{state.display_name} preview failed: {exc}")
+                self.record.error = "; ".join(
+                    warning for track in self.states.values() for warning in track.warnings
+                )
+                self.record.duration_seconds = max(
+                    (track.duration for track in self.states.values()), default=0.0
+                )
+                await save_record(self.record)
 
     async def _broadcast_segment(self, segment: TranscriptSegment) -> None:
         if not self.room:
@@ -539,6 +559,13 @@ class MeetingSession:
                     state.warnings.append(
                         f"{state.display_name} live translation delayed: {exc}"
                     )
+            self.record.error = "; ".join(
+                warning for state in self.states.values() for warning in state.warnings
+            )
+            self.record.duration_seconds = max(
+                (state.duration for state in self.states.values()), default=0.0
+            )
+            await save_record(self.record)
 
     async def end(self) -> None:
         if self.ending:
@@ -591,7 +618,7 @@ class MeetingSession:
             for item in self.record.segments
         )
         self.record.duration_seconds = max(
-            (item.end for item in self.record.segments), default=0.0
+            (state.duration for state in self.states.values()), default=0.0
         )
         warnings = [warning for state in self.states.values() for warning in state.warnings]
         self.record.error = "; ".join(warnings) or None

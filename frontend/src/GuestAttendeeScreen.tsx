@@ -98,7 +98,14 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
     const refreshLiveLines = async () => {
       try {
         const record = await getTranscript(info.meeting_id);
-        if (cancelled || !record.segments.length) return;
+        if (cancelled) return;
+        if (record.error) {
+          const isCapacity = record.error.includes("429") || record.error.includes("RESOURCE_EXHAUSTED");
+          setError(isCapacity
+            ? "Live translation is temporarily busy. The organizer is still saving the audio; the final transcript will be retried after the session ends."
+            : record.error);
+        } else setError(null);
+        if (!record.segments.length) return;
         setSegments((current) => record.segments.reduce(
           (items, segment) => upsertLiveSegment(items, segment),
           current,
@@ -130,6 +137,7 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
           await client?.disconnect();
           setClient(null);
           const record = await getTranscript(session.meeting_id).catch(() => null);
+          if (record?.error) setError(record.error);
           if (record?.segments.length) setSegments([...record.segments].sort((left, right) => right.start - left.start));
         }
       }).catch(() => undefined);

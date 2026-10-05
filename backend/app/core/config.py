@@ -29,8 +29,11 @@ class Settings(BaseSettings):
     # The transcribe-preview model is not accepted by the Live API and closes
     # the websocket with INVALID_ARGUMENT/1007.
     gemini_live_model: str = "gemini-live-2.5-flash-native-audio"
-    gemini_batch_model: str = "gemini-3.5-transcribe-preview"
-    gemini_text_model: str = "gemini-3.5-flash"
+    # Use the generally available multimodal Flash model for live speech.
+    # The transcribe preview endpoint was returning RESOURCE_EXHAUSTED for
+    # meeting chunks and required a second model call for Tamil translation.
+    gemini_batch_model: str = "gemini-2.5-flash"
+    gemini_text_model: str = "gemini-2.5-flash"
     auto_translate: bool = True
     target_language: Language = Language.tamil
     gemini_max_retries: int = 3
