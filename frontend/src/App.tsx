@@ -1015,6 +1015,35 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
   }, []);
   useHistoryEvents(applyRecordUpdate, handleDeletedEvent);
 
+  // Data messages normally deliver each completed meeting line instantly.
+  // Poll the canonical record as a small resilience layer: mobile browsers
+  // and unstable networks can occasionally miss a LiveKit data event, but
+  // must still show the organizer's saved live Tamil/source line immediately.
+  useEffect(() => {
+    const meetingId = meetingConnection?.meeting_id;
+    if (!meetingId || !active) return;
+    let cancelled = false;
+    const refreshLiveLines = async () => {
+      try {
+        const record = await getTranscript(meetingId);
+        if (cancelled || !record.segments.length) return;
+        setSegments((current) => record.segments.reduce(
+          (items, segment) => upsertLiveSegment(items, segment),
+          current,
+        ));
+      } catch {
+        // The LiveKit data path remains primary; a transient refresh failure
+        // must not interrupt microphone capture or the meeting UI.
+      }
+    };
+    void refreshLiveLines();
+    const timer = setInterval(() => void refreshLiveLines(), 1500);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [active, meetingConnection?.meeting_id]);
+
   const prepareMic = async () => {
     if (Platform.OS === "web") return;
     const permission = await AudioModule.requestRecordingPermissionsAsync();

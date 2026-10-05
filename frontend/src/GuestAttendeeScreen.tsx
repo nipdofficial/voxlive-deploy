@@ -89,6 +89,33 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
 
   useEffect(() => () => { void client?.disconnect(); }, [client]);
 
+  // Use the saved, canonical live line as a fallback when a mobile browser
+  // misses a room data message. The organizer and every attendee therefore
+  // converge on the same Tamil-first line without waiting for meeting end.
+  useEffect(() => {
+    if (!client || !info?.meeting_id || status === "ended") return;
+    let cancelled = false;
+    const refreshLiveLines = async () => {
+      try {
+        const record = await getTranscript(info.meeting_id);
+        if (cancelled || !record.segments.length) return;
+        setSegments((current) => record.segments.reduce(
+          (items, segment) => upsertLiveSegment(items, segment),
+          current,
+        ));
+      } catch {
+        // LiveKit remains the primary transport; keep the attendee connected
+        // when a short HTTP refresh is unavailable.
+      }
+    };
+    void refreshLiveLines();
+    const timer = setInterval(() => void refreshLiveLines(), 1500);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [client, info?.meeting_id, status]);
+
   // The backend keeps the authoritative meeting transcript. Refresh the
   // attendee copy when the organizer ends the room so both views retain the
   // completed transcript, including any final segments not received live.
