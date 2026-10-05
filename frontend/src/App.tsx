@@ -482,7 +482,7 @@ function TranscriptPanel({
         {segments.length === 0 && !interimText ? (
           <View style={styles.emptyTranscript}>
             <View style={[styles.emptyIcon, audioDetected && { backgroundColor: "rgba(117,91,208,0.28)", borderWidth: 1, borderColor: "#8067CE", transform: [{ scale: 1.08 }] }]}>
-              <Feather name={isProcessing ? "file-text" : audioDetected ? "mic" : active ? "mic-off" : "activity"} size={25} color={audioDetected ? "#B9A7FF" : "#8F8A9E"} />
+              <Feather name={isProcessing ? "file-text" : active ? "mic" : "activity"} size={25} color={audioDetected ? "#B9A7FF" : "#8F8A9E"} />
             </View>
             <Text style={styles.emptyTitle}>{isProcessing ? "Transcript on the way" : active && status === "recording" ? "Recording in progress" : active ? "Listening for speech" : "Ready when you are"}</Text>
             <Text style={styles.emptyCopy}>{isProcessing ? "Your final text will appear here automatically." : active && status === "recording" ? "Keep speaking. Your words will appear here as they are recognized." : active ? audioDetected ? "Audio detected · processing your speech" : "Listening for speech · speak near the microphone" : "Choose your language and session type, then start a session."}</Text>
