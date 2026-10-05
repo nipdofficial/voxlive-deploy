@@ -9,6 +9,28 @@ type SafariWindow = Window &
     webkitAudioContext?: typeof AudioContext;
   };
 
+const microphoneConstraints: MediaStreamConstraints = {
+  audio: {
+    channelCount: 1,
+    echoCancellation: true,
+    noiseSuppression: true,
+    autoGainControl: true,
+  },
+};
+
+/**
+ * Ask for microphone access while the user is pressing Start.  On mobile
+ * Safari and some embedded Android browsers, delaying this request until
+ * after a WebSocket/LiveKit connection loses the click gesture and creates a
+ * silent AudioContext.  The returned stream is consumed by startWebAudioStream.
+ */
+export async function requestWebMicrophone(): Promise<MediaStream> {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error("Microphone capture requires HTTPS or localhost in this browser");
+  }
+  return navigator.mediaDevices.getUserMedia(microphoneConstraints);
+}
+
 function pcm16Buffer(input: Float32Array, inputSampleRate: number): ArrayBuffer {
   const ratio = inputSampleRate / TARGET_SAMPLE_RATE;
   const sampleCount = Math.max(1, Math.round(input.length / ratio));
@@ -30,25 +52,15 @@ function pcm16Buffer(input: Float32Array, inputSampleRate: number): ArrayBuffer 
 
 export async function startWebAudioStream(
   onBuffer: (buffer: ArrayBuffer, level: number) => void,
+  preparedStream?: MediaStream | null,
 ): Promise<WebAudioStream> {
-  if (!navigator.mediaDevices?.getUserMedia) {
-    throw new Error("Microphone capture requires HTTPS or localhost in this browser");
-  }
-
   const AudioContextConstructor =
     window.AudioContext ?? (window as SafariWindow).webkitAudioContext;
   if (!AudioContextConstructor) {
     throw new Error("Web Audio is not supported by this browser");
   }
 
-  const mediaStream = await navigator.mediaDevices.getUserMedia({
-    audio: {
-      channelCount: 1,
-      echoCancellation: true,
-      noiseSuppression: true,
-      autoGainControl: true,
-    },
-  });
+  const mediaStream = preparedStream ?? await requestWebMicrophone();
 
   let context: AudioContext | null = null;
   try {
@@ -129,6 +141,9 @@ export async function startWebAudioStream(
     }
     silentOutput.connect(context.destination);
     await context.resume();
+    if (context.state !== "running") {
+      throw new Error("The browser did not start microphone audio. Allow microphone access and start the session again.");
+    }
 
     let stopped = false;
     return {

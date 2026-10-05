@@ -40,7 +40,7 @@ import {
 import { API_URL, cancelTranscription, createMeeting, deleteTranscript, endMeeting, generateTranscriptSummary, getHistory, getTranscript, joinMeeting, renameTranscriptSpeaker, retryTranscription, startMeeting as startMeetingApi, submitAudio, translateTranscript, updateMeetingLanguage, updateTranscript, WS_URL } from "./api";
 import type { Language, MeetingConnection, ProcessingStage, Segment, SessionType, TranscriptRecord, TranscriptSummary } from "./types";
 import type { MeetingClient, MeetingParticipantView } from "./livekitMeeting";
-import { startWebAudioStream, type WebAudioStream } from "./webAudioStream";
+import { requestWebMicrophone, startWebAudioStream, type WebAudioStream } from "./webAudioStream";
 import { useHistoryEvents } from "./hooks/useHistoryEvents";
 import { SessionManagementScreen } from "./SessionManagementScreen";
 
@@ -666,6 +666,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
   const socketRef = useRef<WebSocket | null>(null);
   const meetingAudioSocketRef = useRef<WebSocket | null>(null);
   const webAudioRef = useRef<WebAudioStream | null>(null);
+  const preparedMeetingMicRef = useRef<MediaStream | null>(null);
   const meetingClientRef = useRef<MeetingClient | null>(null);
   const historyScrollRef = useRef<ScrollView>(null);
   const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -707,12 +708,27 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
     liveAudio.stream?.stop();
   }, [liveAudio.stream]);
 
+  const releasePreparedMeetingMic = useCallback(() => {
+    const stream = preparedMeetingMicRef.current;
+    preparedMeetingMicRef.current = null;
+    stream?.getTracks().forEach((track) => track.stop());
+  }, []);
+
+  const prepareMeetingMicrophone = useCallback(async () => {
+    if (Platform.OS !== "web" || preparedMeetingMicRef.current) return;
+    // This deliberately starts getUserMedia during the Start/Mic button click.
+    // Waiting until after LiveKit/WebSocket setup can leave mobile browsers
+    // recording a silent AudioContext without an error.
+    preparedMeetingMicRef.current = await requestWebMicrophone();
+  }, []);
+
   const stopMeetingAudioCapture = useCallback(async () => {
     await stopAudioCapture();
+    releasePreparedMeetingMic();
     const socket = meetingAudioSocketRef.current;
     meetingAudioSocketRef.current = null;
     if (socket && socket.readyState < WebSocket.CLOSING) socket.close();
-  }, [stopAudioCapture]);
+  }, [releasePreparedMeetingMic, stopAudioCapture]);
 
   const startMeetingAudioCapture = useCallback(async (connection: MeetingConnection) => {
     if (!connection.is_host || !connection.host_secret) return;
@@ -743,15 +759,18 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
             meetingAudioSocketRef.current = socket;
             void (async () => {
               if (Platform.OS === "web") {
+                const preparedStream = preparedMeetingMicRef.current;
+                preparedMeetingMicRef.current = null;
                 webAudioRef.current = await startWebAudioStream((buffer, level) => {
                   setVoiceIntensity((current) => current * 0.35 + level * 0.65);
                   onAudioBuffer({ data: buffer });
-                });
+                }, preparedStream);
               } else {
                 await liveAudio.stream.start();
               }
               finish();
             })().catch((caught) => {
+              releasePreparedMeetingMic();
               meetingAudioSocketRef.current = null;
               socket.close();
               finish(caught instanceof Error ? caught : new Error("Microphone capture failed"));
@@ -769,15 +788,16 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
         if (!settled) finish(new Error("Meeting audio connection closed before it was ready"));
       };
     });
-  }, [liveAudio.stream, onAudioBuffer]);
+  }, [liveAudio.stream, onAudioBuffer, releasePreparedMeetingMic]);
 
   useEffect(() => () => {
     socketRef.current?.close();
     meetingAudioSocketRef.current?.close();
+    releasePreparedMeetingMic();
     void stopAudioCapture();
     void meetingClientRef.current?.disconnect();
     if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
-  }, [stopAudioCapture]);
+  }, [releasePreparedMeetingMic, stopAudioCapture]);
 
   useEffect(() => {
     if (!active) return;
@@ -1217,6 +1237,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
     const enabled = !meetingMicEnabled;
     try {
       if (enabled) {
+        await prepareMeetingMicrophone();
         await startMeetingAudioCapture(connection);
       } else {
         await stopMeetingAudioCapture();
@@ -1232,6 +1253,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
     const displayName = meetingName.trim();
     if (!displayName) throw new Error("Enter your display name");
     if (join && !meetingCode.trim()) throw new Error("Enter a room code");
+    if (!join) await prepareMeetingMicrophone();
     setBusy(true);
     setStatus(join ? "joining" : "creating");
     setCurrentRecordId(null);
@@ -1308,6 +1330,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
     setBusy(true);
     setStatus("connecting");
     try {
+      await prepareMeetingMicrophone();
       await startMeetingApi(connection.room_code, connection.host_secret ?? "");
       await connectToMeeting(connection, meetingTitle);
     } catch (error) {
@@ -1466,6 +1489,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
             setBusy(false);
           }}
           onStartCreatedSession={async (connection, title) => {
+            await prepareMeetingMicrophone();
             await startMeetingApi(connection.room_code, connection.host_secret ?? "");
             setMeetingName(connection.display_name);
             setMeetingTitle(title);
