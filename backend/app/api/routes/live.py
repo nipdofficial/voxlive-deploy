@@ -332,19 +332,29 @@ async def live_transcription(websocket: WebSocket) -> None:
             "Tamil": ["ta"],
             "English": ["en"],
         }.get(start.language.value, [])
-        live_connect = gemini.client.aio.live.connect(
-            model=settings.gemini_live_model,
-            config=types.LiveConnectConfig(
-                response_modalities=["TEXT"],
-                input_audio_transcription=types.AudioTranscriptionConfig(
-                    language_codes=live_language_codes,
-                    mode="VERBATIM",
+        try:
+            live_connect = gemini.client.aio.live.connect(
+                model=settings.gemini_live_model,
+                config=types.LiveConnectConfig(
+                    response_modalities=["TEXT"],
+                    input_audio_transcription=types.AudioTranscriptionConfig(
+                        language_codes=live_language_codes,
+                        mode="VERBATIM",
+                    ),
                 ),
-            ),
-        )
-        live_session = await live_connect.__aenter__()
-        live_entered = True
-        queue: asyncio.Queue[bytes | None] = asyncio.Queue(
+            )
+            live_session = await live_connect.__aenter__()
+            live_entered = True
+        except Exception as exc:
+            # Some Vertex projects do not yet have Gemini Live model access.
+            # Keep the WebSocket and recording alive using the existing
+            # generateContent chunk path rather than failing before audio is
+            # processed. The final full-audio pass remains authoritative.
+            logger.warning("Gemini Live unavailable; using chunk preview fallback: %s", exc)
+            record.error = f"Live preview fallback active: {exc}"
+            live_connect = None
+            live_session = None
+        queue: asyncio.Queue[tuple[bytes, float] | None] = asyncio.Queue(
             maxsize=max(4, getattr(settings, "live_preview_queue_size", 50))
         )
         chunk_bytes = max(
@@ -352,6 +362,7 @@ async def live_transcription(websocket: WebSocket) -> None:
             int(settings.live_stream_chunk_ms * start.sample_rate * 2 / 1000),
         )
         last_final_end = 0.0
+        queued_preview_offset = 0.0
 
         async def translate_live_segment(segment: TranscriptSegment) -> None:
             """Add Tamil to one committed line without blocking live captions."""
@@ -394,10 +405,11 @@ async def live_transcription(websocket: WebSocket) -> None:
         async def send_live_audio() -> None:
             warning_sent = False
             while True:
-                chunk = await queue.get()
-                if chunk is None:
+                queued = await queue.get()
+                if queued is None:
                     await live_session.send_realtime_input(audio_stream_end=True)
                     return
+                chunk, _offset = queued
                 try:
                     await live_session.send_realtime_input(
                         audio=types.Blob(
@@ -420,6 +432,36 @@ async def live_transcription(websocket: WebSocket) -> None:
                         )
                         warning_sent = True
                     raise
+
+        async def send_chunk_preview_fallback() -> None:
+            while True:
+                queued = await queue.get()
+                if queued is None:
+                    return
+                chunk, offset = queued
+                if _pcm_rms(chunk) < settings.live_silence_rms_threshold:
+                    continue
+                try:
+                    segments = await _transcribe_live_chunk(
+                        gemini, chunk, start.sample_rate, record, offset
+                    )
+                    for segment in segments:
+                        if not _append_preview_segment(record, segment):
+                            continue
+                        await websocket.send_json(
+                            {"type": "transcript", "segment": segment.model_dump()}
+                        )
+                        if realtime_translation and settings.auto_translate:
+                            translation_task = asyncio.create_task(
+                                translate_live_segment(segment)
+                            )
+                            translation_tasks.add(translation_task)
+                    await save_record(record)
+                except asyncio.CancelledError:
+                    return
+                except Exception as exc:
+                    record.error = f"Live chunk preview delayed: {exc}"
+                    await save_record(record)
 
         async def receive_live_transcripts() -> None:
             nonlocal last_final_end
@@ -460,9 +502,12 @@ async def live_transcription(websocket: WebSocket) -> None:
             except asyncio.CancelledError:
                 return
 
-        sender_task = asyncio.create_task(send_live_audio())
-        receiver_task = asyncio.create_task(receive_live_transcripts())
-        workers = [sender_task, receiver_task]
+        if live_session is None:
+            workers = [asyncio.create_task(send_chunk_preview_fallback())]
+        else:
+            sender_task = asyncio.create_task(send_live_audio())
+            receiver_task = asyncio.create_task(receive_live_transcripts())
+            workers = [sender_task, receiver_task]
         workers_gather = asyncio.gather(*workers, return_exceptions=True)
         # Gemini Live sessions are currently limited to ten minutes. Keep the
         # application setting configurable, but never advertise a longer live
@@ -484,7 +529,8 @@ async def live_transcription(websocket: WebSocket) -> None:
                     live_chunk = bytes(pending[:chunk_bytes])
                     if queue.full():
                         queue.get_nowait()
-                    queue.put_nowait(live_chunk)
+                    queue.put_nowait((live_chunk, queued_preview_offset))
+                    queued_preview_offset += len(live_chunk) / (start.sample_rate * 2)
                     del pending[:chunk_bytes]
             elif message.get("text") == "stop":
                 stopped = True
@@ -509,7 +555,7 @@ async def live_transcription(websocket: WebSocket) -> None:
                     # Preserve the old drain behavior when the full pass is
                     # disabled or the recording is too large for inline input.
                     if pending:
-                        await queue.put(bytes(pending))
+                        await queue.put((bytes(pending), queued_preview_offset))
                         pending.clear()
                     await queue.put(None)
                     await workers_gather
@@ -524,9 +570,10 @@ async def live_transcription(websocket: WebSocket) -> None:
                             task.cancel()
                 break
 
-        await live_connect.__aexit__(None, None, None)
-        live_connect = None
-        live_entered = False
+        if live_connect is not None and live_entered:
+            await live_connect.__aexit__(None, None, None)
+            live_connect = None
+            live_entered = False
 
         path = settings.data_dir / "audio" / record.audio_filename
         record.processing_stage = ProcessingStage.saving_audio
