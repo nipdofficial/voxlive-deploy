@@ -411,7 +411,7 @@ const getStyles = (isDark: boolean) =>
       maxWidth: 560,
     },
     controlCard: { maxWidth: 900, marginTop: 18, padding: 26 },
-    controlHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 12 },
+    controlHeader: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 12 },
     allSessionsBadge: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 9, backgroundColor: isDark ? "#2A2338" : "#F0EBF8" },
     allSessionsText: { color: isDark ? "#CDBDFF" : "#62499A", fontSize: 11, fontWeight: "700" },
     cardHeader: {
@@ -460,6 +460,8 @@ const getStyles = (isDark: boolean) =>
       fontWeight: "600",
     },
     secondaryButton: {
+      flex: 1,
+      minWidth: 150,
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "center",
@@ -530,6 +532,7 @@ const getStyles = (isDark: boolean) =>
     },
     actionRow: {
       flexDirection: "row",
+      flexWrap: "wrap",
       gap: 10,
     },
     statsContainer: {
