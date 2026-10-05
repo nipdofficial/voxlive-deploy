@@ -1073,6 +1073,11 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
   };
 
   const connectToMeeting = async (connection: MeetingConnection, title?: string) => {
+    // A LiveKit room is always a managed meeting, even when it was started
+    // from the "Live" choice in Session Management. Keeping this state as
+    // "Live" routes Stop through the legacy WebSocket recorder and leaves
+    // the actual meeting running/finalizing in the background.
+    setSessionType("Meeting");
     setMeetingConnection(connection);
     setMeetingCode(connection.room_code);
     if (title) setMeetingTitle(title);
@@ -1350,7 +1355,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
             setMeetingName(connection.display_name);
             setMeetingTitle(title);
             setLanguage(connection.language ?? "Mixed");
-            setSessionType("Live");
+            setSessionType("Meeting");
             setTab("new");
             await connectToMeeting(connection, title);
           }}
