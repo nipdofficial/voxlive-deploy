@@ -161,7 +161,12 @@ async def health() -> dict:
             settings.livekit_url and settings.livekit_api_key and settings.livekit_api_secret
         ),
     }
-    return {"status": "ok" if checks["storage"] else "degraded", "checks": checks}
+    # Storage and Vertex credentials are required for the core transcription
+    # service. Diarization and LiveKit are optional capabilities, so expose
+    # them as individual checks without making a healthy transcription API
+    # look unavailable when either optional feature is not configured.
+    ready = checks["storage"] and checks["vertex_credentials"]
+    return {"status": "ok" if ready else "degraded", "ready": ready, "checks": checks}
 
 
 @app.get("/metrics")
