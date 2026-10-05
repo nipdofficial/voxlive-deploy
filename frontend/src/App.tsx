@@ -209,15 +209,16 @@ function AnimatedWaveform({ active, intensity, styles }: { active: boolean; inte
       const state = audioState.current;
       // Boost only the visual response for quiet voices. This does not alter
       // microphone gain or the audio sent to the transcription backend.
-      const energy = state.active
-        ? Math.max(0.22, Math.min(1, Math.sqrt(Math.max(0, state.intensity)) * 1.35))
+      const speaking = state.active && state.intensity > 0.055;
+      const energy = speaking
+        ? Math.max(0.18, Math.min(1, Math.sqrt(Math.max(0, state.intensity)) * 1.65))
         : 0;
       animation = Animated.parallel(levels.map((level, index) => {
         const motion = 0.45 + 0.55 * Math.abs(Math.sin(phase + index * 0.58));
         const profile = 0.55 + (waveform[index]! / 73) * 0.45;
-        const target = state.active
+        const target = speaking
           ? Math.min(1, 0.12 + energy * motion * profile)
-          : 0.04 + motion * profile * 0.075;
+          : state.active ? 0.035 + motion * profile * 0.055 : 0.04 + motion * profile * 0.075;
         return Animated.timing(level, {
           toValue: target,
           duration: state.active ? 135 : 360,
@@ -244,7 +245,7 @@ function AnimatedWaveform({ active, intensity, styles }: { active: boolean; inte
             styles.waveBar,
             {
               height: levels[index]!.interpolate({ inputRange: [0, 1], outputRange: [5, height] }),
-              opacity: active ? 0.95 : 0.28,
+              opacity: active ? Math.min(0.95, 0.28 + intensity * 1.5) : 0.28,
             },
           ]}
         />
@@ -390,6 +391,7 @@ function TranscriptPanel({
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editText, setEditText] = useState("");
   const isProcessing = !active && (status === "queued" || status === "processing" || Boolean(processingStage));
+  const audioDetected = active && intensity > 0.055;
   const processingTitle = processingStage ? PROCESSING_LABELS[processingStage] : "Processing transcript";
   const processingCopy = processingStage === "diarizing"
     ? "The transcript is ready. Speaker labels are being refined in the background."
@@ -458,9 +460,12 @@ function TranscriptPanel({
         ) : null}
         {segments.length === 0 && !interimText ? (
           <View style={styles.emptyTranscript}>
-            <View style={styles.emptyIcon}><MaterialCommunityIcons name={isProcessing ? "text-box-outline" : active ? "microphone-outline" : "waveform"} size={26} color="#8F8A9E" /></View>
+            <View style={[styles.emptyIcon, audioDetected && { backgroundColor: "rgba(117,91,208,0.28)", borderWidth: 1, borderColor: "#8067CE", transform: [{ scale: 1.08 }] }]}>
+              <Feather name={isProcessing ? "file-text" : audioDetected ? "mic" : active ? "mic-off" : "activity"} size={25} color={audioDetected ? "#B9A7FF" : "#8F8A9E"} />
+            </View>
             <Text style={styles.emptyTitle}>{isProcessing ? "Transcript on the way" : active && status === "recording" ? "Recording in progress" : active ? "Listening for speech" : "Ready when you are"}</Text>
-            <Text style={styles.emptyCopy}>{isProcessing ? "Your final text will appear here automatically." : active && status === "recording" ? "Keep speaking. Your words will appear here as they are recognized." : active ? "Speak naturally and your live transcript will appear here." : "Choose your language and session type, then start a session."}</Text>
+            <Text style={styles.emptyCopy}>{isProcessing ? "Your final text will appear here automatically." : active && status === "recording" ? "Keep speaking. Your words will appear here as they are recognized." : active ? audioDetected ? "Audio detected · processing your speech" : "Listening for speech · speak near the microphone" : "Choose your language and session type, then start a session."}</Text>
+            {active ? <View style={{ flexDirection: "row", alignItems: "center", gap: 6, marginTop: 12 }}><View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: audioDetected ? "#4FE0A6" : "#6F697D" }} /><Text style={{ color: "#8F8A9E", fontFamily: "DMSans_700Bold", fontSize: 8, letterSpacing: 1 }}>{audioDetected ? "VOICE DETECTED" : "WAITING FOR VOICE"}</Text></View> : null}
           </View>
         ) : segments.map((segment, index) => (
           <Pressable
@@ -1420,17 +1425,18 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
             <Text style={styles.heroCopy}>Fast, accurate transcription for Sinhala, Tamil and English.</Text>
           </View>
           {meetingConnection?.is_host ? (
-            <View style={{ width: "100%", maxWidth: 1180, alignSelf: "center", padding: 18, marginBottom: 18, borderRadius: 18, backgroundColor: "#211B32", borderWidth: 1, borderColor: "#4B4262" }}>
-              <Text style={{ color: "#B9A7FF", fontSize: 9, fontWeight: "700", letterSpacing: 1.4 }}>SESSION DETAILS</Text>
-              <Text style={{ color: "#F1ECFF", fontSize: 22, fontWeight: "700", marginTop: 6 }}>{meetingTitle || "Live session"}</Text>
-              <Text style={{ color: "#B8B1C8", fontSize: 12, marginTop: 4 }}>Room {meetingConnection.room_code} · Organizer view · {meetingParticipants.length} connected</Text>
-              <Text style={{ color: "#B9A7FF", fontSize: 10, fontWeight: "700", marginTop: 14 }}>INPUT LANGUAGE</Text>
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
-                {(["Sinhala", "Mixed"] as Language[]).map((option) => <Pressable key={option} onPress={() => void changeMeetingLanguage(option)} disabled={status === "finalizing meeting"} style={{ paddingHorizontal: 11, paddingVertical: 8, borderRadius: 9, borderWidth: 1, borderColor: language === option ? "#8067CE" : "rgba(255,255,255,0.12)", backgroundColor: language === option ? "#755BD0" : "rgba(255,255,255,0.05)" }}><Text style={{ color: language === option ? "white" : "#B8B1C8", fontSize: 11, fontWeight: "600" }}>{option}</Text></Pressable>)}
+            <View style={styles.organizerSessionBar}>
+              <View style={styles.organizerSessionIdentity}>
+                <View style={styles.organizerSessionIcon}><Feather name="radio" size={18} color="#CFC2FF" /></View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.organizerSessionEyebrow}>ORGANIZER SESSION</Text>
+                  <Text numberOfLines={1} style={styles.organizerSessionTitle}>{meetingTitle || "Live session"}</Text>
+                  <Text style={styles.organizerSessionMeta}>Room {meetingConnection.room_code} · {language} input</Text>
+                </View>
               </View>
-              <Text style={{ color: "#B9A7FF", fontSize: 10, fontWeight: "700", marginTop: 14 }}>ATTENDEES</Text>
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 }}>
-                {meetingParticipants.length ? meetingParticipants.map((participant) => <View key={participant.identity} style={{ paddingHorizontal: 10, paddingVertical: 7, borderRadius: 10, backgroundColor: "rgba(159,122,234,0.16)" }}><Text style={{ color: "#D1C0FF", fontSize: 11 }}>{participant.name}</Text></View>) : <Text style={{ color: "#8F8A9E", fontSize: 11 }}>Waiting for attendees…</Text>}
+              <View style={styles.organizerSessionStats}>
+                <View style={styles.organizerStat}><Text style={styles.organizerStatValue}>{meetingParticipants.length}</Text><Text style={styles.organizerStatLabel}>CONNECTED</Text></View>
+                <View style={styles.organizerStat}><View style={[styles.organizerLiveDot, active && styles.organizerLiveDotActive]} /><Text style={styles.organizerStatLabel}>{active ? "LIVE" : "READY"}</Text></View>
               </View>
             </View>
           ) : null}
@@ -1447,7 +1453,10 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
                       {(["Sinhala", "Mixed"] as Language[]).map((option) => <Pressable key={option} disabled={active || busy} onPress={() => setLanguage(option)} style={{ paddingHorizontal: 9, paddingVertical: 6, borderRadius: 9, borderWidth: 1, borderColor: language === option ? "#8067CE" : "rgba(255,255,255,0.12)", backgroundColor: language === option ? "#755BD0" : "rgba(255,255,255,0.05)" }}><Text style={{ color: language === option ? "white" : "#B8B1C8", fontSize: 10, fontWeight: "600" }}>{option}</Text></Pressable>)}
                     </View>
                   </View>
-                  <View style={styles.autoLanguageBadge}><Text style={styles.autoLanguageBadgeText}>{language === "Mixed" ? "AUTO" : "SET"}</Text></View>
+                  <View style={styles.autoLanguageActions}>
+                    <View style={styles.autoLanguageBadge}><Text style={styles.autoLanguageBadgeText}>{language === "Mixed" ? "AUTO" : "SET"}</Text></View>
+                    {meetingConnection?.is_host && active ? <Pressable accessibilityRole="button" accessibilityLabel={meetingMicEnabled ? "Mute microphone" : "Unmute microphone"} onPress={() => void meetingClientRef.current?.setMicrophoneEnabled(!meetingMicEnabled).then(() => setMeetingMicEnabled((current) => !current))} style={[styles.micToggleButton, !meetingMicEnabled && styles.micToggleButtonMuted]}><Feather name={meetingMicEnabled ? "mic" : "mic-off"} size={15} color="white" /><Text style={styles.micToggleText}>{meetingMicEnabled ? "Mute mic" : "Unmute mic"}</Text></Pressable> : null}
+                  </View>
                 </View>
               </View>
 
@@ -1473,7 +1482,6 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
               <View style={styles.privacyRow}><Feather name="shield" size={13} color="#716C7F" /><Text style={styles.privacyText}>Your audio is encrypted in transit and never used to train public models.</Text></View>
             </View>
 
-            {sessionType === "Meeting" && meetingConnection && meetingTitle ? <View style={{ gap: 8, paddingHorizontal: 16, paddingVertical: 12, borderRadius: 14, borderWidth: 1, borderColor: "#8067CE", backgroundColor: "rgba(117,91,208,0.16)", marginBottom: 12 }}><Text style={{ color: "#B9A7FF", fontSize: 9, fontWeight: "700", letterSpacing: 1.4 }}>SESSION</Text><Text style={{ color: "#EEEAF9", fontSize: 16, fontWeight: "700" }}>{meetingTitle}</Text><Text style={{ color: "#B8B1C8", fontSize: 11 }}>Room {meetingConnection.room_code} · {language}</Text>{meetingConnection.is_host && active ? <Pressable onPress={() => void meetingClientRef.current?.setMicrophoneEnabled(!meetingMicEnabled).then(() => setMeetingMicEnabled((current) => !current))} style={{ alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 10, backgroundColor: meetingMicEnabled ? "#755BD0" : "rgba(239,92,117,0.18)" }}><Feather name={meetingMicEnabled ? "mic" : "mic-off"} size={15} color="white" /><Text style={{ color: "white", fontSize: 11, fontWeight: "700" }}>{meetingMicEnabled ? "Mute microphone" : "Unmute microphone"}</Text></Pressable> : null}{meetingSpeakerMuted && !meetingConnection.is_host ? <Text style={{ color: "#F3C969", fontSize: 11 }}>Organizer microphone is muted</Text> : null}</View> : null}
             <TranscriptPanel segments={segments} interimText={interimText} interimLanguage={interimLanguage} active={active} status={status} processingStage={processingStage} duration={shownDuration} intensity={voiceIntensity} exportRecord={currentExportRecord} copied={copiedRecordId === currentRecordId} exportBusy={exporting?.id === currentRecordId ? exporting.kind : null} onCopy={(record) => void copyTranscript(record)} onSaveTranscript={(record) => void saveTranscript(record)} summarizing={summarizingRecordId === currentRecordId} summaryCopied={copiedSummaryRecordId === currentRecordId} onGenerateSummary={(record) => void generateSummary(record)} onCopySummary={(summary) => { if (currentRecordId) void copySummary(currentRecordId, summary); }} onSaveSummary={(record) => void saveSummary(record)} onUpdateRecord={(record, next) => void editTranscriptSegments(record, next)} onRenameSpeaker={(record, oldName, newName) => void renameSpeaker(record, oldName, newName)} onTranslate={(record, target) => void translateRecord(record, target)} translating={translatingRecordId === currentRecordId} styles={styles} />
           </View>
             </>
@@ -1556,7 +1564,8 @@ function createStyles(isDark: boolean, width: number) {
     desktopNav: { marginLeft: "auto", flexDirection: "row", gap: 8, marginRight: 18 }, navItem: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 15, height: 40, borderRadius: 10 }, navItemActive: { backgroundColor: c.raised }, navText: { color: c.muted, fontFamily: "DMSans_500Medium", fontSize: 13 }, navTextActive: { color: c.purpleText }, headerActions: { marginLeft: "auto", flexDirection: "row", alignItems: "center", gap: 10 }, themeButton: { width: 36, height: 36, borderRadius: 11, backgroundColor: c.raised, borderWidth: 1, borderColor: c.border, alignItems: "center", justifyContent: "center" }, avatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: c.purpleSurface, borderWidth: 1, borderColor: c.strongBorder, alignItems: "center", justifyContent: "center" }, avatarText: { color: c.purpleText, fontFamily: "DMSans_700Bold", fontSize: 11 },
     mainScroll: { paddingLeft: hasIconSidebar ? 16 : 22, paddingRight: 22, paddingTop: 48, paddingBottom: 110 }, pageIntro: { width: "100%", maxWidth: hasIconSidebar ? 1500 : 1180, alignSelf: hasIconSidebar ? "flex-start" : "center", marginBottom: 22 }, eyebrow: { color: "#8063D1", fontFamily: "DMSans_700Bold", fontSize: 10, letterSpacing: 2.3, marginBottom: 10 }, heroTitle: { color: c.text, fontFamily: "DMSans_700Bold", fontSize: 34, letterSpacing: -1.25 }, heroCopy: { color: c.muted, fontFamily: "DMSans_400Regular", fontSize: 14, marginTop: 9 },
     workspace: { width: "100%", maxWidth: hasIconSidebar ? 1500 : 1180, alignSelf: hasIconSidebar ? "flex-start" : "center", gap: 22 }, workspaceWide: { flexDirection: "row", alignItems: "stretch" }, controlsColumn: { flex: 0.85, gap: 24 }, controlSection: { gap: 15 }, sectionTitle: { flexDirection: "row", alignItems: "center", gap: 10 }, numberBadge: { width: 27, height: 27, borderRadius: 8, backgroundColor: c.purpleSurface, alignItems: "center", justifyContent: "center" }, numberText: { color: "#8D6BE5", fontFamily: "DMSans_700Bold", fontSize: 10 }, sectionHeading: { color: c.softText, fontFamily: "DMSans_600SemiBold", fontSize: 14 },
-    autoLanguageCard: { minHeight: 74, padding: 14, borderRadius: 15, borderWidth: 1, borderColor: "#8067CE", backgroundColor: c.selected, flexDirection: "row", alignItems: "center" }, autoLanguageIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: c.raised, alignItems: "center", justifyContent: "center", marginRight: 12 }, autoLanguageBody: { flex: 1 }, autoLanguageTitle: { color: c.purpleText, fontFamily: "DMSans_600SemiBold", fontSize: 13 }, autoLanguageHint: { color: c.faint, fontFamily: "DMSans_400Regular", fontSize: 10, lineHeight: 15, marginTop: 3 }, autoLanguageBadge: { paddingHorizontal: 8, height: 24, borderRadius: 12, backgroundColor: "#755BD0", alignItems: "center", justifyContent: "center" }, autoLanguageBadgeText: { color: "white", fontFamily: "DMSans_700Bold", fontSize: 8, letterSpacing: 0.8 },
+    organizerSessionBar: { width: "100%", maxWidth: hasIconSidebar ? 1500 : 1180, alignSelf: hasIconSidebar ? "flex-start" : "center", marginBottom: 22, padding: 16, borderRadius: 18, borderWidth: 1, borderColor: c.strongBorder, backgroundColor: c.selected, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 18 }, organizerSessionIdentity: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 12 }, organizerSessionIcon: { width: 42, height: 42, borderRadius: 13, backgroundColor: c.purpleSurface, alignItems: "center", justifyContent: "center" }, organizerSessionEyebrow: { color: c.purpleText, fontFamily: "DMSans_700Bold", fontSize: 8, letterSpacing: 1.5 }, organizerSessionTitle: { color: c.text, fontFamily: "DMSans_700Bold", fontSize: 20, marginTop: 4 }, organizerSessionMeta: { color: c.muted, fontFamily: "DMSans_400Regular", fontSize: 11, marginTop: 3 }, organizerSessionStats: { flexDirection: "row", alignItems: "center", gap: 10 }, organizerStat: { minWidth: 74, paddingHorizontal: 10, paddingVertical: 8, borderRadius: 11, backgroundColor: c.raised, alignItems: "center", gap: 3 }, organizerStatValue: { color: c.body, fontFamily: "DMSans_700Bold", fontSize: 13 }, organizerStatLabel: { color: c.faint, fontFamily: "DMSans_700Bold", fontSize: 7.5, letterSpacing: 0.8 }, organizerLiveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: c.muted }, organizerLiveDotActive: { backgroundColor: "#4FE0A6" },
+    autoLanguageCard: { minHeight: 74, padding: 14, borderRadius: 15, borderWidth: 1, borderColor: "#8067CE", backgroundColor: c.selected, flexDirection: "row", alignItems: "center" }, autoLanguageIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: c.raised, alignItems: "center", justifyContent: "center", marginRight: 12 }, autoLanguageBody: { flex: 1, minWidth: 0 }, autoLanguageTitle: { color: c.purpleText, fontFamily: "DMSans_600SemiBold", fontSize: 13 }, autoLanguageHint: { color: c.faint, fontFamily: "DMSans_400Regular", fontSize: 10, lineHeight: 15, marginTop: 3 }, autoLanguageActions: { alignItems: "flex-end", gap: 8 }, autoLanguageBadge: { paddingHorizontal: 8, height: 24, borderRadius: 12, backgroundColor: "#755BD0", alignItems: "center", justifyContent: "center" }, autoLanguageBadgeText: { color: "white", fontFamily: "DMSans_700Bold", fontSize: 8, letterSpacing: 0.8 }, micToggleButton: { minHeight: 34, paddingHorizontal: 10, borderRadius: 10, backgroundColor: "#755BD0", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6 }, micToggleButtonMuted: { backgroundColor: "rgba(239,92,117,0.28)", borderWidth: 1, borderColor: "rgba(239,92,117,0.52)" }, micToggleText: { color: "white", fontFamily: "DMSans_700Bold", fontSize: 9 },
     sessionGrid: { flexDirection: "row", gap: 10 }, sessionGridStack: { flexDirection: "column" }, sessionCard: { flex: 1, minHeight: 118, padding: 14, borderRadius: 15, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface }, sessionCardActive: { borderColor: "#8067CE", backgroundColor: c.selected }, sessionIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: c.raised, alignItems: "center", justifyContent: "center", marginBottom: 10 }, sessionIconActive: { backgroundColor: "#755BD0" }, sessionLabel: { color: c.body, fontFamily: "DMSans_600SemiBold", fontSize: 13 }, sessionLabelActive: { color: c.purpleText }, sessionHint: { color: c.faint, fontFamily: "DMSans_400Regular", fontSize: 9.5, marginTop: 3 },
     toggleCard: { minHeight: 74, padding: 14, borderRadius: 15, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface, flexDirection: "row", alignItems: "center" }, toggleIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: c.purpleSurface, alignItems: "center", justifyContent: "center", marginRight: 12 }, toggleText: { flex: 1 }, toggleTitle: { color: c.softText, fontFamily: "DMSans_600SemiBold", fontSize: 13 }, toggleHint: { color: c.faint, fontFamily: "DMSans_400Regular", fontSize: 10, marginTop: 3 },
     meetingCard: { gap: 11, padding: 14, borderRadius: 15, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface }, meetingHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, roomCode: { color: c.purpleText, fontFamily: "DMSans_700Bold", fontSize: 15, letterSpacing: 1.5 }, meetingInput: { height: 44, borderRadius: 11, borderWidth: 1, borderColor: c.border, backgroundColor: c.raised, color: c.text, paddingHorizontal: 13, fontFamily: "DMSans_500Medium", fontSize: 12 }, meetingJoinRow: { flexDirection: "row", gap: 9 }, meetingCodeInput: { flex: 1, letterSpacing: 1.3 }, joinButton: { width: 86, borderRadius: 11, backgroundColor: c.purpleSurface, borderWidth: 1, borderColor: c.strongBorder, alignItems: "center", justifyContent: "center" }, joinButtonText: { color: c.purpleText, fontFamily: "DMSans_700Bold", fontSize: 11 }, participantList: { flexDirection: "row", flexWrap: "wrap", gap: 8 }, participantChip: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 9, height: 30, borderRadius: 15, backgroundColor: c.raised }, participantText: { color: c.body, fontFamily: "DMSans_500Medium", fontSize: 10 },
