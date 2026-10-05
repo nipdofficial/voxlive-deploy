@@ -152,6 +152,10 @@ class MeetingSession:
         # worker. Source captions must reach both clients immediately; these
         # tasks fill in Tamil asynchronously and are awaited before final save.
         self.translation_tasks: set[asyncio.Task[None]] = set()
+        # Keep live translation requests ordered. Sending one Gemini request
+        # for every overlapping audio chunk at once can trigger throttling and
+        # make Sinhala source captions appear without their Tamil updates.
+        self.translation_lock = asyncio.Lock()
 
     @property
     def participant_count(self) -> int:
@@ -395,9 +399,24 @@ class MeetingSession:
     ) -> None:
         """Attach Tamil to already-published live segments without blocking them."""
         try:
-            translations = await GeminiService().translate_segments(
-                segments, get_settings().target_language
-            )
+            async with self.translation_lock:
+                translator = GeminiService()
+                try:
+                    translations = await translator.translate_segments(
+                        segments, get_settings().target_language
+                    )
+                except Exception:
+                    # A batch response should not discard every line when a
+                    # provider response is malformed or only one line fails.
+                    translations = []
+                    for segment in segments:
+                        try:
+                            result = await translator.translate_segments(
+                                [segment], get_settings().target_language
+                            )
+                            translations.append(result[0] if result else "")
+                        except Exception:
+                            translations.append("")
             for source, translated in zip(segments, translations, strict=True):
                 if not translated:
                     continue
