@@ -152,6 +152,8 @@ class MeetingSession:
         self.states: dict[str, TrackState] = {}
         self.room: Any = None
         self.stop_event = asyncio.Event()
+        self.ready_event = asyncio.Event()
+        self.start_error: str | None = None
         self.task: asyncio.Task[None] | None = None
         self.ending = False
         # Translation is deliberately decoupled from the live transcription
@@ -209,9 +211,16 @@ class MeetingSession:
     async def start(self) -> None:
         if self.started:
             return
-        self.started = True
-        self.started_at = time.monotonic()
         self.task = asyncio.create_task(self._run())
+        try:
+            await asyncio.wait_for(self.ready_event.wait(), timeout=12)
+        except asyncio.TimeoutError as exc:
+            self.stop_event.set()
+            self.task.cancel()
+            await asyncio.gather(self.task, return_exceptions=True)
+            raise RuntimeError("The live transcription service did not become ready") from exc
+        if self.start_error:
+            raise RuntimeError(self.start_error)
 
     async def _run(self) -> None:
         try:
@@ -247,12 +256,25 @@ class MeetingSession:
                     participant.name or participant.identity,
                     bool(metadata.get("shared_mic", False)),
                 )
+                logger.info(
+                    "meeting_audio_track_subscribed meeting_id=%s participant=%s",
+                    self.record.id,
+                    participant.identity,
+                )
                 self._pad_reconnect_gap(state)
                 task = asyncio.create_task(self._consume_track(track, state))
                 state.capture_tasks.add(task)
                 task.add_done_callback(state.capture_tasks.discard)
 
             await room.connect(settings.livekit_url, token)
+            # Do not return success to the organizer until this hidden
+            # participant is actually in the room and able to subscribe to
+            # the organizer microphone. This removes a start-up race where
+            # speech could begin before the transcriber joined.
+            self.started = True
+            self.started_at = time.monotonic()
+            self.ready_event.set()
+            logger.info("meeting_transcriber_ready meeting_id=%s room=%s", self.record.id, self.room_name)
             self.record.status = JobStatus.processing
             self.record.processing_stage = ProcessingStage.recording
             await save_record(self.record)
@@ -260,9 +282,11 @@ class MeetingSession:
             await self._finalize()
             await room.disconnect()
         except Exception as exc:
+            self.start_error = f"Meeting worker failed: {exc}"
+            self.ready_event.set()
             self.record.status = JobStatus.failed
             self.record.processing_stage = None
-            self.record.error = f"Meeting worker failed: {exc}"
+            self.record.error = self.start_error
             await save_record(self.record)
         finally:
             for state in self.states.values():
