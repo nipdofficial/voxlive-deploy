@@ -20,6 +20,9 @@ export const connectMeeting: ConnectMeeting = async (url, token, callbacks, opti
   room.on(RoomEvent.Reconnecting, () => callbacks.onConnectionChange("reconnecting"));
   room.on(RoomEvent.Reconnected, () => callbacks.onConnectionChange("connected"));
   room.on(RoomEvent.Disconnected, () => callbacks.onConnectionChange("disconnected"));
+  room.on(RoomEvent.ActiveSpeakersChanged, (speakers) => {
+    callbacks.onSpeakingChange?.(speakers.some((participant) => participant.identity === room.localParticipant.identity));
+  });
   room.on(RoomEvent.LocalTrackPublished, (publication) => {
     if (options.publishMicrophone && publication.kind === Track.Kind.Audio) callbacks.onConnectionChange("microphone ready");
   });

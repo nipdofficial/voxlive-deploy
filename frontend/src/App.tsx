@@ -391,7 +391,10 @@ function TranscriptPanel({
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editText, setEditText] = useState("");
   const isProcessing = !active && (status === "queued" || status === "processing" || Boolean(processingStage));
-  const audioDetected = active && intensity > 0.055;
+  // Quiet speech can produce a low Web Audio RMS value. Keep this threshold
+  // below the previous value so the indicator reflects real speech instead
+  // of incorrectly showing the muted microphone icon.
+  const audioDetected = active && intensity > 0.025;
   const processingTitle = processingStage ? PROCESSING_LABELS[processingStage] : "Processing transcript";
   const processingCopy = processingStage === "diarizing"
     ? "The transcript is ready. Speaker labels are being refined in the background."
@@ -1079,6 +1082,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
           ? { ...item, translated_text: segment.translated_text }
           : item
       ))),
+      onSpeakingChange: (speaking) => setVoiceIntensity(speaking ? 0.28 : 0),
       onMicStateChange: (state) => setMeetingSpeakerMuted(state.muted),
       onError: (error) => Alert.alert("Meeting", error.message),
     }, { publishMicrophone: connection.is_host });
@@ -1140,6 +1144,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
     await meetingClientRef.current?.disconnect();
     meetingClientRef.current = null;
     setMeetingMicEnabled(true);
+    setVoiceIntensity(0);
     setMeetingSpeakerMuted(false);
     setMeetingParticipants([]);
     setMeetingConnection(null);
