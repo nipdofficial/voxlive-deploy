@@ -24,6 +24,24 @@ function formatTime(seconds: number) {
   return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
 }
 
+function sameLiveSegment(left: Segment, right: Segment) {
+  if (left.segment_id && right.segment_id) return left.segment_id === right.segment_id;
+  return left.participant_identity === right.participant_identity
+    && left.start === right.start && left.end === right.end && left.text === right.text;
+}
+
+function sortLiveSegments(items: Segment[]) {
+  return [...items].sort((left, right) => (right.sequence ?? -1) - (left.sequence ?? -1) || right.start - left.start || right.end - left.end);
+}
+
+function upsertLiveSegment(current: Segment[], next: Segment) {
+  const index = current.findIndex((item) => sameLiveSegment(item, next));
+  if (index < 0) return sortLiveSegments([next, ...current]);
+  const updated = [...current];
+  updated[index] = { ...updated[index], ...next };
+  return sortLiveSegments(updated);
+}
+
 export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) {
   const [info, setInfo] = useState<SessionInfo | null>(null);
   const [name, setName] = useState("");
@@ -98,6 +116,7 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
     setStatus("joining");
     try {
       const connection = await joinMeeting(roomCode, name.trim(), false);
+      if (connection.segments?.length) setSegments(sortLiveSegments(connection.segments));
       const { connectMeeting } = await import("helascribe-meeting-connector");
       const nextClient = await connectMeeting(connection.livekit_url, connection.token, {
         onConnectionChange: setStatus,
@@ -111,17 +130,9 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
             || segment.participant_identity
             || "Speaker";
           const labeledSegment = { ...segment, speaker };
-          const duplicate = current.some((item) => item.participant_identity === labeledSegment.participant_identity && item.start === labeledSegment.start && item.end === labeledSegment.end && item.text === labeledSegment.text);
-          return duplicate ? current : [labeledSegment, ...current].sort((left, right) => right.start - left.start);
+          return upsertLiveSegment(current, labeledSegment);
         }),
-        onTranslation: (segment) => setSegments((current) => current.map((item) => (
-          item.participant_identity === segment.participant_identity
-          && item.start === segment.start
-          && item.end === segment.end
-          && item.text === segment.text
-            ? { ...item, translated_text: segment.translated_text }
-            : item
-        ))),
+        onTranslation: (segment) => setSegments((current) => upsertLiveSegment(current, segment)),
         onMicStateChange: (state) => setSpeakerMuted(state.muted),
         onError: (caught) => setError(caught.message),
       }, { publishMicrophone: false, subscribeAudio: false });

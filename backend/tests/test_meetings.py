@@ -109,6 +109,61 @@ def test_reconnect_gap_keeps_room_timeline(monkeypatch) -> None:
     assert len(state.pending) == 2 * 16_000 * 2
 
 
+def test_canonical_live_segments_have_stable_ordered_ids() -> None:
+    from app.services import meeting_service
+    from app.models.schemas import Language, SessionType, TranscriptRecord
+
+    record = TranscriptRecord(
+        id="meeting-1", title="Meeting", language=Language.sinhala, session_type=SessionType.meeting
+    )
+    session = meeting_service.MeetingSession("ABCDEFGH", "secret", record, Language.sinhala)
+
+    first = session._canonical_segment(TranscriptSegment(start=0, end=1, text="පළමුව"))
+    second = session._canonical_segment(TranscriptSegment(start=1, end=2, text="දෙවැනි"))
+
+    assert (first.segment_id, first.sequence, first.is_final) == ("meeting-1:1", 1, False)
+    assert (second.segment_id, second.sequence, second.is_final) == ("meeting-1:2", 2, False)
+
+
+def test_finalization_preserves_canonical_live_tamil_segments() -> None:
+    from app.services import meeting_service
+    from app.models.schemas import Language, SessionType, TranscriptRecord
+
+    record = TranscriptRecord(title="Meeting", language=Language.sinhala, session_type=SessionType.meeting)
+    session = meeting_service.MeetingSession("ABCDEFGH", "secret", record, Language.sinhala)
+    state = TrackState("host", "Anu", False, 0)
+    state.preview_segments = [
+        TranscriptSegment(
+            segment_id="record:1", sequence=1, is_final=True, start=0, end=1,
+            text="සිංහල", translated_text="தமிழ்",
+        )
+    ]
+
+    asyncio.run(session._finalize_state(state))
+
+    assert state.final_segments == state.preview_segments
+
+
+def test_join_connection_replays_only_finalized_canonical_segments(monkeypatch) -> None:
+    from app.api.routes import meetings
+    from app.models.schemas import Language, SessionType, TranscriptRecord
+
+    record = TranscriptRecord(title="Meeting", language=Language.sinhala, session_type=SessionType.meeting)
+    record.segments = [
+        TranscriptSegment(segment_id="record:1", sequence=1, is_final=True, start=0, end=1, text="සිංහල", translated_text="தமிழ்"),
+        TranscriptSegment(segment_id="record:2", sequence=2, is_final=False, start=1, end=2, text="pending"),
+    ]
+    session = SimpleNamespace(
+        code="ABCDEFGH", record=record, host_secret="secret", language=Language.sinhala
+    )
+    participant = SimpleNamespace(identity="guest", display_name="Guest")
+    monkeypatch.setattr(meetings, "get_settings", lambda: SimpleNamespace(livekit_url="wss://livekit"))
+
+    connection = meetings._connection(session, participant, "token", is_host=False)
+
+    assert [segment.segment_id for segment in connection.segments] == ["record:1"]
+
+
 def test_live_translation_updates_saved_segment_and_broadcasts_delta(monkeypatch) -> None:
     from app.services import meeting_service
     from app.models.schemas import Language, SessionType, TranscriptRecord

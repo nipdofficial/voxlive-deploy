@@ -42,6 +42,14 @@ def _connection(session, participant, token: str, *, is_host: bool) -> MeetingCo
         is_host=is_host,
         host_secret=session.host_secret if is_host else None,
         language=session.language,
+        segments=sorted(
+            (
+                segment
+                for segment in session.record.segments
+                if segment.is_final and segment.translated_text
+            ),
+            key=lambda segment: (segment.sequence or 0, segment.start, segment.end),
+        ),
     )
 
 

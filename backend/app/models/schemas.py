@@ -41,6 +41,11 @@ class SpokenLanguage(str, Enum):
 
 
 class TranscriptSegment(BaseModel):
+    # Server-issued identity for a canonical live meeting segment. Older
+    # records may not have these fields, so they remain optional on read.
+    segment_id: str | None = None
+    sequence: int | None = Field(default=None, ge=1)
+    is_final: bool = False
     start: float = Field(ge=0)
     end: float = Field(ge=0)
     text: str
@@ -171,6 +176,9 @@ class MeetingConnection(BaseModel):
     is_host: bool = False
     host_secret: str | None = None
     language: Language | None = None
+    # Finalized canonical segments allow a late attendee to catch up before
+    # receiving new LiveKit data events.
+    segments: list[TranscriptSegment] = Field(default_factory=list)
 
 
 class SessionInfo(BaseModel):

@@ -1,6 +1,7 @@
 import asyncio
 import io
 import json
+import logging
 import secrets
 import time
 import wave
@@ -25,6 +26,7 @@ from app.services.gemini_service import GeminiService
 
 SAMPLE_RATE = 16_000
 TRANSCRIPT_TOPIC = "transcript.segment"
+logger = logging.getLogger(__name__)
 
 
 def generate_room_code() -> str:
@@ -160,6 +162,7 @@ class MeetingSession:
         # for every overlapping audio chunk at once can trigger throttling and
         # make Sinhala source captions appear without their Tamil updates.
         self.translation_lock = asyncio.Lock()
+        self.next_segment_sequence = 1
 
     @property
     def participant_count(self) -> int:
@@ -190,6 +193,18 @@ class MeetingSession:
         self.record.participants.append(participant)
         self.record.diarization = self.record.diarization or shared_mic
         return participant
+
+    def _canonical_segment(self, segment: TranscriptSegment) -> TranscriptSegment:
+        """Assign one stable identity before a segment is ever broadcast."""
+        sequence = self.next_segment_sequence
+        self.next_segment_sequence += 1
+        return segment.model_copy(
+            update={
+                "segment_id": f"{self.record.id}:{sequence}",
+                "sequence": sequence,
+                "is_final": False,
+            }
+        )
 
     async def start(self) -> None:
         if self.started:
@@ -370,10 +385,18 @@ class MeetingSession:
                 for segment in labeled:
                     if (segment.start + segment.end) / 2 < commit_after:
                         continue
+                    segment = self._canonical_segment(segment)
                     published.append(segment)
                     state.preview_segments.append(segment)
                     self.record.segments.append(segment)
                     await self._broadcast_segment(segment)
+                    logger.info(
+                        "meeting_source_published meeting_id=%s segment_id=%s sequence=%s language=%s",
+                        self.record.id,
+                        segment.segment_id,
+                        segment.sequence,
+                        segment.detected_language.value if segment.detected_language else "Unknown",
+                    )
                 if published:
                     translation_task = asyncio.create_task(
                         self._translate_preview_segments(published)
@@ -413,6 +436,7 @@ class MeetingSession:
     ) -> None:
         """Attach Tamil to already-published live segments without blocking them."""
         try:
+            started = time.perf_counter()
             async with self.translation_lock:
                 translator = GeminiService()
                 try:
@@ -434,10 +458,14 @@ class MeetingSession:
             for source, translated in zip(segments, translations, strict=True):
                 if not translated:
                     continue
-                updated = source.model_copy(update={"translated_text": translated})
+                updated = source.model_copy(
+                    update={"translated_text": translated, "is_final": True}
+                )
                 for index, saved in enumerate(self.record.segments):
                     if (
-                        saved.participant_identity == source.participant_identity
+                        saved.segment_id == source.segment_id
+                        if source.segment_id
+                        else saved.participant_identity == source.participant_identity
                         and saved.start == source.start
                         and saved.end == source.end
                         and saved.text == source.text
@@ -447,13 +475,22 @@ class MeetingSession:
                 for state in self.states.values():
                     for index, saved in enumerate(state.preview_segments):
                         if (
-                            saved.start == source.start
+                            saved.segment_id == source.segment_id
+                            if source.segment_id
+                            else saved.start == source.start
                             and saved.end == source.end
                             and saved.text == source.text
                         ):
                             state.preview_segments[index] = updated
                             break
                 await self._broadcast_translation(updated)
+                logger.info(
+                    "meeting_translation_published meeting_id=%s segment_id=%s sequence=%s translation_ms=%.1f",
+                    self.record.id,
+                    updated.segment_id,
+                    updated.sequence,
+                    (time.perf_counter() - started) * 1000,
+                )
             await save_record(self.record)
         except asyncio.CancelledError:
             raise
@@ -527,6 +564,16 @@ class MeetingSession:
         await save_record(self.record)
 
     async def _finalize_state(self, state: TrackState) -> None:
+        # The translated, canonical live sequence is the authoritative meeting
+        # record. Keeping it prevents the historical file from disagreeing
+        # with what both organizer and attendees saw live. Fall back to the
+        # full-audio pass only when live translation did not complete.
+        if state.preview_segments and all(
+            segment.is_final and segment.translated_text
+            for segment in state.preview_segments
+        ):
+            state.final_segments = state.preview_segments
+            return
         if state.duration <= 0:
             state.final_segments = state.preview_segments
             return

@@ -71,6 +71,24 @@ function sortSegments(segments: Segment[]): Segment[] {
   return [...segments].sort((left, right) => left.start - right.start || left.end - right.end);
 }
 
+function sameLiveSegment(left: Segment, right: Segment) {
+  if (left.segment_id && right.segment_id) return left.segment_id === right.segment_id;
+  return left.participant_identity === right.participant_identity
+    && left.start === right.start && left.end === right.end && left.text === right.text;
+}
+
+function sortLiveSegments(segments: Segment[]): Segment[] {
+  return [...segments].sort((left, right) => (right.sequence ?? -1) - (left.sequence ?? -1) || right.start - left.start || right.end - left.end);
+}
+
+function upsertLiveSegment(current: Segment[], next: Segment): Segment[] {
+  const existing = current.findIndex((item) => sameLiveSegment(item, next));
+  if (existing < 0) return sortLiveSegments([next, ...current]);
+  const updated = [...current];
+  updated[existing] = { ...updated[existing], ...next };
+  return sortLiveSegments(updated);
+}
+
 function speakerColor(speaker?: string | null) {
   if (!speaker) return "#B9B7C6";
   const numericLabel = speaker.match(/\d+/)?.[0];
@@ -1061,27 +1079,13 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
     setCurrentRecordId(connection.meeting_id);
     setProcessingStage("recording");
     trackJob(connection.meeting_id);
+    if (connection.segments?.length) setSegments(sortLiveSegments(connection.segments));
     const { connectMeeting } = await import("helascribe-meeting-connector");
     const client = await connectMeeting(connection.livekit_url, connection.token, {
       onConnectionChange: setStatus,
       onParticipantsChange: setMeetingParticipants,
-      onSegment: (segment) => setSegments((current) => {
-        const duplicate = current.some((item) =>
-          item.participant_identity === segment.participant_identity
-          && item.start === segment.start
-          && item.end === segment.end
-          && item.text === segment.text
-        );
-        return duplicate ? current : [segment, ...current].sort((a, b) => b.start - a.start);
-      }),
-      onTranslation: (segment) => setSegments((current) => current.map((item) => (
-        item.participant_identity === segment.participant_identity
-        && item.start === segment.start
-        && item.end === segment.end
-        && item.text === segment.text
-          ? { ...item, translated_text: segment.translated_text }
-          : item
-      ))),
+      onSegment: (segment) => setSegments((current) => upsertLiveSegment(current, segment)),
+      onTranslation: (segment) => setSegments((current) => upsertLiveSegment(current, segment)),
       onSpeakingChange: (speaking) => setVoiceIntensity(speaking ? 0.28 : 0),
       onMicStateChange: (state) => setMeetingSpeakerMuted(state.muted),
       onError: (error) => Alert.alert("Meeting", error.message),

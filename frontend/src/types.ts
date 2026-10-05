@@ -5,6 +5,9 @@ export type ProcessingStage = "recording" | "saving_audio" | "transcribing" | "d
 export type SpokenLanguage = "Sinhala" | "Tamil" | "English" | "Unknown";
 
 export interface Segment {
+  segment_id?: string | null;
+  sequence?: number | null;
+  is_final?: boolean;
   start: number;
   end: number;
   text: string;
@@ -70,6 +73,7 @@ export interface MeetingConnection {
   is_host: boolean;
   host_secret?: string | null;
   language?: Language;
+  segments?: Segment[];
 }
 
 export interface SessionInfo {
