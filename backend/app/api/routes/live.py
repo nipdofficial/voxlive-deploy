@@ -421,7 +421,7 @@ async def live_transcription(websocket: WebSocket) -> None:
                     return
                 except Exception as exc:
                     logger.exception("Gemini Live audio send failed")
-                    record.error = f"Live preview delayed: {exc}"
+                    record.error = f"Live API unavailable; chunk preview fallback active: {exc}"
                     await save_record(record)
                     if not warning_sent:
                         await websocket.send_json(
@@ -431,32 +431,65 @@ async def live_transcription(websocket: WebSocket) -> None:
                             }
                         )
                         warning_sent = True
-                    raise
+                    # The Live API can accept the handshake and reject the
+                    # first audio frame when the project lacks model access.
+                    # Continue consuming audio through the lower-rate chunk
+                    # fallback instead of killing the recording WebSocket.
+                    fallback_buffer = bytearray(chunk)
+                    fallback_offset = _offset
+                    fallback_chunk_bytes = start.sample_rate * 2 * 4
+                    while True:
+                        next_item = await queue.get()
+                        if next_item is None:
+                            if fallback_buffer:
+                                await process_fallback_chunk(bytes(fallback_buffer), fallback_offset)
+                            return
+                        next_chunk, next_offset = next_item
+                        fallback_buffer.extend(next_chunk)
+                        if len(fallback_buffer) < fallback_chunk_bytes:
+                            continue
+                        await process_fallback_chunk(bytes(fallback_buffer), fallback_offset)
+                        fallback_buffer.clear()
+                        fallback_offset = next_offset + len(next_chunk) / (start.sample_rate * 2)
+
+        async def process_fallback_chunk(chunk: bytes, offset: float) -> None:
+            if _pcm_rms(chunk) < settings.live_silence_rms_threshold:
+                return
+            segments = await _transcribe_live_chunk(
+                gemini, chunk, start.sample_rate, record, offset
+            )
+            for segment in segments:
+                if not _append_preview_segment(record, segment):
+                    continue
+                await websocket.send_json(
+                    {"type": "transcript", "segment": segment.model_dump()}
+                )
+                if realtime_translation and settings.auto_translate:
+                    translation_task = asyncio.create_task(
+                        translate_live_segment(segment)
+                    )
+                    translation_tasks.add(translation_task)
+            await save_record(record)
 
         async def send_chunk_preview_fallback() -> None:
+            fallback_buffer = bytearray()
+            fallback_offset = 0.0
+            fallback_chunk_bytes = start.sample_rate * 2 * 4
             while True:
                 queued = await queue.get()
                 if queued is None:
+                    if fallback_buffer:
+                        await process_fallback_chunk(bytes(fallback_buffer), fallback_offset)
                     return
                 chunk, offset = queued
-                if _pcm_rms(chunk) < settings.live_silence_rms_threshold:
+                if not fallback_buffer:
+                    fallback_offset = offset
+                fallback_buffer.extend(chunk)
+                if len(fallback_buffer) < fallback_chunk_bytes:
                     continue
                 try:
-                    segments = await _transcribe_live_chunk(
-                        gemini, chunk, start.sample_rate, record, offset
-                    )
-                    for segment in segments:
-                        if not _append_preview_segment(record, segment):
-                            continue
-                        await websocket.send_json(
-                            {"type": "transcript", "segment": segment.model_dump()}
-                        )
-                        if realtime_translation and settings.auto_translate:
-                            translation_task = asyncio.create_task(
-                                translate_live_segment(segment)
-                            )
-                            translation_tasks.add(translation_task)
-                    await save_record(record)
+                    await process_fallback_chunk(bytes(fallback_buffer), fallback_offset)
+                    fallback_buffer.clear()
                 except asyncio.CancelledError:
                     return
                 except Exception as exc:
