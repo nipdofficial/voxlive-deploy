@@ -36,6 +36,8 @@ export const connectMeeting: ConnectMeeting = async (url, token, callbacks, opti
       if (topic !== "transcript.segment") return;
       if (message.type === "transcript" && message.segment) callbacks.onSegment(message.segment);
       if (message.type === "translation" && message.segment) callbacks.onTranslation?.(message.segment);
+      if (message.type === "warning") callbacks.onLiveIssue?.(String(message.message || "Live transcription has a problem; audio is still being saved."));
+      if (message.type === "recovered") callbacks.onLiveIssue?.(null);
     } catch (error) {
       callbacks.onError(error instanceof Error ? error : new Error("Invalid transcript event"));
     }

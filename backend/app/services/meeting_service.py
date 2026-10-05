@@ -98,6 +98,7 @@ class TrackState:
     preview_segments: list[TranscriptSegment] = field(default_factory=list)
     final_segments: list[TranscriptSegment] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    empty_transcription_chunks: int = 0
     queue: asyncio.Queue[tuple[bytes, float, float] | None] = field(
         default_factory=lambda: asyncio.Queue(maxsize=4)
     )
@@ -160,6 +161,8 @@ class MeetingSession:
         # worker. The source is retained privately until its Tamil translation
         # is ready, then one complete line is sent to every client.
         self.translation_tasks: set[asyncio.Task[None]] = set()
+        self.live_issues: dict[str, str] = {}
+        self.broadcast_live_issue = ""
         # Keep live translation requests ordered. Sending one Gemini request
         # for every overlapping audio chunk at once can trigger throttling and
         # make Sinhala source captions appear without their Tamil updates.
@@ -357,7 +360,16 @@ class MeetingSession:
                     break
                 await self.ingest_pcm(state, bytes(event.frame.data))
         except Exception as exc:
-            state.warnings.append(f"{state.display_name} audio track failed: {exc}")
+            logger.exception(
+                "meeting_audio_track_failed meeting_id=%s participant=%s",
+                self.record.id,
+                state.identity,
+            )
+            warning = f"VoxLive lost {state.display_name}'s microphone stream. Reconnect the microphone to resume live captions; captured audio is preserved."
+            if warning not in state.warnings:
+                state.warnings.append(warning)
+            await self._set_live_issue("audio", warning)
+            await save_record(self.record)
         finally:
             await stream.aclose()
 
@@ -378,7 +390,25 @@ class MeetingSession:
             chunk = bytes(state.pending[:chunk_bytes])
             offset = state.start_offset + state.queued_bytes / (SAMPLE_RATE * 2)
             commit_after = 0.0 if state.first_chunk else offset + settings.live_chunk_overlap_seconds
-            await state.queue.put((chunk, offset, commit_after))
+            try:
+                state.queue.put_nowait((chunk, offset, commit_after))
+                if state.queue.qsize() < max(1, state.queue.maxsize // 2):
+                    await self._set_live_issue("backlog", None)
+            except asyncio.QueueFull:
+                # Audio has already been written to the durable recording file.
+                # Drop the oldest preview-only chunk to keep captions near live
+                # speech rather than letting an overloaded provider accumulate
+                # an ever-growing delay. Final transcription still sees the
+                # complete captured audio after the meeting ends.
+                try:
+                    state.queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    pass
+                state.queue.put_nowait((chunk, offset, commit_after))
+                await self._set_live_issue(
+                    "backlog",
+                    "Live captions are falling behind. VoxLive is preserving the full audio and keeping the preview current; any skipped preview audio will be included in the final transcript.",
+                )
             del state.pending[:advance_bytes]
             state.queued_bytes += advance_bytes
             state.first_chunk = False
@@ -414,6 +444,16 @@ class MeetingSession:
                     display_name=state.display_name,
                     offset=offset,
                 )
+                if labeled:
+                    state.empty_transcription_chunks = 0
+                    await self._set_live_issue("transcription", None)
+                else:
+                    state.empty_transcription_chunks += 1
+                    if state.empty_transcription_chunks >= 3:
+                        await self._set_live_issue(
+                            "transcription",
+                            "VoxLive is receiving audio, but transcription has not returned words yet. Check the selected language and microphone clarity; recording continues.",
+                        )
                 published: list[TranscriptSegment] = []
                 for segment in labeled:
                     if (segment.start + segment.end) / 2 < commit_after:
@@ -448,14 +488,48 @@ class MeetingSession:
                 )
                 await save_record(self.record)
             except Exception as exc:
-                state.warnings.append(f"{state.display_name} preview failed: {exc}")
-                self.record.error = "; ".join(
-                    warning for track in self.states.values() for warning in track.warnings
+                logger.exception(
+                    "meeting_live_transcription_failed meeting_id=%s participant=%s",
+                    self.record.id,
+                    state.identity,
                 )
+                if "RESOURCE_EXHAUSTED" in str(exc) or "429" in str(exc):
+                    message = "Gemini could not process a live audio chunk because its service or quota is temporarily unavailable. Audio is still being saved; live captions may be delayed."
+                else:
+                    message = "VoxLive could not transcribe a live audio chunk. Audio is still being saved, and it will try again with the next chunk."
+                await self._set_live_issue("transcription", message)
                 self.record.duration_seconds = max(
                     (track.duration for track in self.states.values()), default=0.0
                 )
                 await save_record(self.record)
+
+    async def _set_live_issue(self, stage: str, message: str | None) -> None:
+        """Persist and immediately publish live pipeline issues to both views."""
+        if message:
+            self.live_issues[stage] = message
+        else:
+            self.live_issues.pop(stage, None)
+        self.record.error = "; ".join(dict.fromkeys(self.live_issues.values())) or None
+        issue_key = self.record.error or ""
+        if issue_key == self.broadcast_live_issue:
+            return
+        self.broadcast_live_issue = issue_key
+        if not self.room:
+            return
+        payload = json.dumps(
+            {
+                "type": "warning" if issue_key else "recovered",
+                "stage": stage,
+                "message": issue_key,
+            },
+            ensure_ascii=False,
+        ).encode("utf-8")
+        try:
+            await self.room.local_participant.publish_data(
+                payload, reliable=True, topic=TRANSCRIPT_TOPIC
+            )
+        except Exception:
+            logger.exception("Could not publish meeting status meeting_id=%s", self.record.id)
 
     async def _broadcast_segment(self, segment: TranscriptSegment) -> None:
         if not self.room:
@@ -505,8 +579,10 @@ class MeetingSession:
                             translations.append(result[0] if result else "")
                         except Exception:
                             translations.append("")
+            failed_translation = False
             for source, translated in zip(segments, translations, strict=True):
                 if not translated:
+                    failed_translation = True
                     continue
                 updated = source.model_copy(
                     update={"translated_text": translated, "is_final": True}
@@ -547,21 +623,25 @@ class MeetingSession:
                     updated.sequence,
                     (time.perf_counter() - started) * 1000,
                 )
+            if failed_translation:
+                await self._set_live_issue(
+                    "translation",
+                    "VoxLive transcribed speech but could not translate one or more lines to Tamil yet. Translation will be retried when the session is finalized.",
+                )
+            else:
+                await self._set_live_issue("translation", None)
             await save_record(self.record)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             # Source captions remain useful if a translation request is slow
             # or temporarily unavailable; finalization retries translation.
-            identities = {segment.participant_identity for segment in segments}
-            for state in self.states.values():
-                if state.identity in identities:
-                    state.warnings.append(
-                        f"{state.display_name} live translation delayed: {exc}"
-                    )
-            self.record.error = "; ".join(
-                warning for state in self.states.values() for warning in state.warnings
-            )
+            logger.exception("meeting_live_translation_failed meeting_id=%s", self.record.id)
+            if "RESOURCE_EXHAUSTED" in str(exc) or "429" in str(exc):
+                message = "Gemini could not translate a live line because its service or quota is temporarily unavailable. Audio and source text are saved; Tamil translation may be delayed."
+            else:
+                message = "VoxLive could not translate a live line to Tamil. Audio and source text are saved; translation will be retried when the session ends."
+            await self._set_live_issue("translation", message)
             self.record.duration_seconds = max(
                 (state.duration for state in self.states.values()), default=0.0
             )
@@ -621,7 +701,9 @@ class MeetingSession:
             (state.duration for state in self.states.values()), default=0.0
         )
         warnings = [warning for state in self.states.values() for warning in state.warnings]
-        self.record.error = "; ".join(warnings) or None
+        self.record.error = "; ".join(
+            dict.fromkeys([*warnings, *self.live_issues.values()])
+        ) or None
         self.record.status = JobStatus.completed
         self.record.processing_stage = None
         await save_record(self.record)

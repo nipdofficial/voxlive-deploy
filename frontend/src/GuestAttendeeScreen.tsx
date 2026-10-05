@@ -169,6 +169,7 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
         }),
         onTranslation: (segment) => setSegments((current) => upsertLiveSegment(current, segment)),
         onMicStateChange: (state) => setSpeakerMuted(state.muted),
+        onLiveIssue: setError,
         onError: (caught) => setError(caught.message),
       }, { publishMicrophone: false, subscribeAudio: false });
       setClient(nextClient);

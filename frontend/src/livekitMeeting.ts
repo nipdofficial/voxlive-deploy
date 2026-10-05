@@ -9,6 +9,7 @@ export type MeetingCallbacks = {
   onTranslation?: (segment: Segment) => void;
   onSpeakingChange?: (speaking: boolean) => void;
   onMicStateChange?: (state: { identity: string; name: string; muted: boolean }) => void;
+  onLiveIssue?: (message: string | null) => void;
   onError: (error: Error) => void;
 };
 

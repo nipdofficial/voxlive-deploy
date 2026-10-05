@@ -220,6 +220,82 @@ def test_live_translation_updates_saved_segment_and_broadcasts_delta(monkeypatch
     ]
 
 
+def test_live_pipeline_issue_is_broadcast_and_recovery_clears_it(monkeypatch) -> None:
+    from app.services.meeting_service import MeetingSession
+    from app.models.schemas import Language, SessionType, TranscriptRecord
+
+    record = TranscriptRecord(
+        title="Sinhala meeting",
+        language=Language.sinhala,
+        session_type=SessionType.meeting,
+    )
+    session = MeetingSession("ABCDEFGH", "secret", record, Language.sinhala)
+
+    class FakeParticipant:
+        def __init__(self) -> None:
+            self.payloads: list[dict] = []
+
+        async def publish_data(self, payload, *, reliable, topic):
+            self.payloads.append(json.loads(payload.decode("utf-8")))
+
+    participant = FakeParticipant()
+    session.room = SimpleNamespace(local_participant=participant)
+
+    async def exercise() -> None:
+        await session._set_live_issue("transcription", "VoxLive could not transcribe this chunk")
+        await session._set_live_issue("transcription", "VoxLive could not transcribe this chunk")
+        await session._set_live_issue("transcription", None)
+
+    asyncio.run(exercise())
+
+    assert record.error is None
+    assert [item["type"] for item in participant.payloads] == ["warning", "recovered"]
+    assert participant.payloads[0]["message"] == "VoxLive could not transcribe this chunk"
+
+
+def test_live_translation_failure_is_not_silently_swallowed(monkeypatch) -> None:
+    from app.services import meeting_service
+    from app.models.schemas import Language, SessionType, TranscriptRecord
+
+    record = TranscriptRecord(
+        title="Sinhala meeting",
+        language=Language.sinhala,
+        session_type=SessionType.meeting,
+    )
+    session = meeting_service.MeetingSession("ABCDEFGH", "secret", record, Language.sinhala)
+    segment = TranscriptSegment(start=0, end=2, text="සිංහල", participant_identity="speaker")
+
+    class FakeParticipant:
+        def __init__(self) -> None:
+            self.payloads: list[dict] = []
+
+        async def publish_data(self, payload, *, reliable, topic):
+            self.payloads.append(json.loads(payload.decode("utf-8")))
+
+    class FailingTranslator:
+        async def translate_segments(self, _segments, _target_language):
+            raise RuntimeError("temporary translator failure")
+
+    async def ignore_save(_record):
+        return _record
+
+    participant = FakeParticipant()
+    session.room = SimpleNamespace(local_participant=participant)
+    monkeypatch.setattr(meeting_service, "GeminiService", FailingTranslator)
+    monkeypatch.setattr(meeting_service, "save_record", ignore_save)
+    monkeypatch.setattr(
+        meeting_service,
+        "get_settings",
+        lambda: SimpleNamespace(target_language=Language.tamil),
+    )
+
+    asyncio.run(session._translate_preview_segments([segment]))
+
+    assert "could not translate" in record.error
+    assert participant.payloads[-1]["type"] == "warning"
+    assert "translation" in participant.payloads[-1]["message"].lower()
+
+
 def test_end_is_idempotent(monkeypatch) -> None:
     from app.services import meeting_service
     from app.models.schemas import Language, SessionType, TranscriptRecord

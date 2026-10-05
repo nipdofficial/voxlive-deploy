@@ -1062,7 +1062,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
           setMeetingError(isCapacity
             ? "The speech service is temporarily busy. Audio is still being saved, and the full recording will be transcribed again when the meeting ends."
             : record.error);
-        }
+        } else setMeetingError(null);
         if (!record.segments.length) return;
         setSegments((current) => record.segments.reduce(
           (items, segment) => upsertLiveSegment(items, segment),
@@ -1227,6 +1227,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
       onTranslation: (segment) => setSegments((current) => upsertLiveSegment(current, segment)),
       onSpeakingChange: (speaking) => setVoiceIntensity(speaking ? 0.28 : 0),
       onMicStateChange: (state) => setMeetingSpeakerMuted(state.muted),
+      onLiveIssue: setMeetingError,
       onError: (error) => Alert.alert("Meeting", error.message),
     }, { publishMicrophone: false, notifyMicState: connection.is_host });
     meetingClientRef.current = client;
