@@ -1071,6 +1071,14 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
         );
         return duplicate ? current : [segment, ...current].sort((a, b) => b.start - a.start);
       }),
+      onTranslation: (segment) => setSegments((current) => current.map((item) => (
+        item.participant_identity === segment.participant_identity
+        && item.start === segment.start
+        && item.end === segment.end
+        && item.text === segment.text
+          ? { ...item, translated_text: segment.translated_text }
+          : item
+      ))),
       onMicStateChange: (state) => setMeetingSpeakerMuted(state.muted),
       onError: (error) => Alert.alert("Meeting", error.message),
     }, { publishMicrophone: connection.is_host });

@@ -114,6 +114,14 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
           const duplicate = current.some((item) => item.participant_identity === labeledSegment.participant_identity && item.start === labeledSegment.start && item.end === labeledSegment.end && item.text === labeledSegment.text);
           return duplicate ? current : [labeledSegment, ...current].sort((left, right) => right.start - left.start);
         }),
+        onTranslation: (segment) => setSegments((current) => current.map((item) => (
+          item.participant_identity === segment.participant_identity
+          && item.start === segment.start
+          && item.end === segment.end
+          && item.text === segment.text
+            ? { ...item, translated_text: segment.translated_text }
+            : item
+        ))),
         onMicStateChange: (state) => setSpeakerMuted(state.muted),
         onError: (caught) => setError(caught.message),
       }, { publishMicrophone: false, subscribeAudio: false });

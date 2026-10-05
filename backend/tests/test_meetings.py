@@ -1,4 +1,5 @@
 import asyncio
+import json
 import re
 import wave
 from types import SimpleNamespace
@@ -106,6 +107,62 @@ def test_reconnect_gap_keeps_room_timeline(monkeypatch) -> None:
 
     assert state.duration == 3.0
     assert len(state.pending) == 2 * 16_000 * 2
+
+
+def test_live_translation_updates_saved_segment_and_broadcasts_delta(monkeypatch) -> None:
+    from app.services import meeting_service
+    from app.models.schemas import Language, SessionType, TranscriptRecord
+
+    record = TranscriptRecord(
+        title="Sinhala meeting",
+        language=Language.sinhala,
+        session_type=SessionType.meeting,
+    )
+    session = meeting_service.MeetingSession("ABCDEFGH", "secret", record, Language.sinhala)
+    segment = TranscriptSegment(
+        start=0,
+        end=2,
+        text="සිංහල වාක්‍යය",
+        speaker="Anu",
+        participant_identity="user-1",
+    )
+    state = TrackState("user-1", "Anu", False, 0)
+    state.preview_segments = [segment]
+    record.segments = [segment]
+    session.states[state.identity] = state
+
+    class FakeParticipant:
+        def __init__(self) -> None:
+            self.payloads: list[dict] = []
+
+        async def publish_data(self, payload, *, reliable, topic):
+            self.payloads.append(json.loads(payload.decode("utf-8")))
+
+    class FakeGemini:
+        async def translate_segments(self, segments, target_language):
+            assert target_language == Language.tamil
+            return ["தமிழ் மொழிபெயர்ப்பு"]
+
+    async def ignore_save(_record):
+        return _record
+
+    participant = FakeParticipant()
+    session.room = SimpleNamespace(local_participant=participant)
+    monkeypatch.setattr(meeting_service, "GeminiService", FakeGemini)
+    monkeypatch.setattr(
+        meeting_service,
+        "get_settings",
+        lambda: SimpleNamespace(target_language=Language.tamil),
+    )
+    monkeypatch.setattr(meeting_service, "save_record", ignore_save)
+
+    asyncio.run(session._translate_preview_segments([segment]))
+
+    assert record.segments[0].translated_text == "தமிழ் மொழிபெயர்ப்பு"
+    assert state.preview_segments[0].translated_text == "தமிழ் மொழிபெயர்ப்பு"
+    assert participant.payloads == [
+        {"type": "translation", "segment": record.segments[0].model_dump(mode="json")}
+    ]
 
 
 def test_end_is_idempotent(monkeypatch) -> None:

@@ -148,6 +148,10 @@ class MeetingSession:
         self.stop_event = asyncio.Event()
         self.task: asyncio.Task[None] | None = None
         self.ending = False
+        # Translation is deliberately decoupled from the live transcription
+        # worker. Source captions must reach both clients immediately; these
+        # tasks fill in Tamil asynchronously and are awaited before final save.
+        self.translation_tasks: set[asyncio.Task[None]] = set()
 
     @property
     def participant_count(self) -> int:
@@ -332,7 +336,9 @@ class MeetingSession:
                     model=settings.gemini_batch_model,
                     audio_duration_seconds=len(chunk) / (SAMPLE_RATE * 2),
                     request_timeout_seconds=settings.gemini_live_timeout_seconds,
-                    translate_to=settings.target_language,
+                    # Do not hold the live caption on the translation call.
+                    # The Tamil update is published by a separate task below.
+                    translate_to=None,
                     verify_mixed_language=False,
                     use_structured_mixed_model=False,
                 )
@@ -342,12 +348,20 @@ class MeetingSession:
                     display_name=state.display_name,
                     offset=offset,
                 )
+                published: list[TranscriptSegment] = []
                 for segment in labeled:
                     if (segment.start + segment.end) / 2 < commit_after:
                         continue
+                    published.append(segment)
                     state.preview_segments.append(segment)
                     self.record.segments.append(segment)
                     await self._broadcast_segment(segment)
+                if published:
+                    translation_task = asyncio.create_task(
+                        self._translate_preview_segments(published)
+                    )
+                    self.translation_tasks.add(translation_task)
+                    translation_task.add_done_callback(self.translation_tasks.discard)
                 await save_record(self.record)
             except Exception as exc:
                 state.warnings.append(f"{state.display_name} preview failed: {exc}")
@@ -364,6 +378,61 @@ class MeetingSession:
         await self.room.local_participant.publish_data(
             payload, reliable=True, topic=TRANSCRIPT_TOPIC
         )
+
+    async def _broadcast_translation(self, segment: TranscriptSegment) -> None:
+        if not self.room or not segment.translated_text:
+            return
+        payload = json.dumps(
+            {"type": "translation", "segment": segment.model_dump(mode="json")},
+            ensure_ascii=False,
+        ).encode("utf-8")
+        await self.room.local_participant.publish_data(
+            payload, reliable=True, topic=TRANSCRIPT_TOPIC
+        )
+
+    async def _translate_preview_segments(
+        self, segments: list[TranscriptSegment]
+    ) -> None:
+        """Attach Tamil to already-published live segments without blocking them."""
+        try:
+            translations = await GeminiService().translate_segments(
+                segments, get_settings().target_language
+            )
+            for source, translated in zip(segments, translations, strict=True):
+                if not translated:
+                    continue
+                updated = source.model_copy(update={"translated_text": translated})
+                for index, saved in enumerate(self.record.segments):
+                    if (
+                        saved.participant_identity == source.participant_identity
+                        and saved.start == source.start
+                        and saved.end == source.end
+                        and saved.text == source.text
+                    ):
+                        self.record.segments[index] = updated
+                        break
+                for state in self.states.values():
+                    for index, saved in enumerate(state.preview_segments):
+                        if (
+                            saved.start == source.start
+                            and saved.end == source.end
+                            and saved.text == source.text
+                        ):
+                            state.preview_segments[index] = updated
+                            break
+                await self._broadcast_translation(updated)
+            await save_record(self.record)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            # Source captions remain useful if a translation request is slow
+            # or temporarily unavailable; finalization retries translation.
+            identities = {segment.participant_identity for segment in segments}
+            for state in self.states.values():
+                if state.identity in identities:
+                    state.warnings.append(
+                        f"{state.display_name} live translation delayed: {exc}"
+                    )
 
     async def end(self) -> None:
         if self.ending:
@@ -398,6 +467,9 @@ class MeetingSession:
             await state.queue.put(None)
             if state.worker:
                 await state.worker
+        if self.translation_tasks:
+            await asyncio.gather(*tuple(self.translation_tasks), return_exceptions=True)
+        for state in self.states.values():
             try:
                 await self._finalize_state(state)
             except Exception as exc:
