@@ -25,7 +25,10 @@ class Settings(BaseSettings):
     # The current transcription service uses Gemini generateContent for
     # overlapping live previews. The live-preview model is reserved for a
     # persistent Live API session and is not valid for generateContent.
-    gemini_live_model: str = "gemini-3.5-transcribe-preview"
+    # Gemini Live API uses a different model family from generateContent.
+    # The transcribe-preview model is not accepted by the Live API and closes
+    # the websocket with INVALID_ARGUMENT/1007.
+    gemini_live_model: str = "gemini-live-2.5-flash-native-audio"
     gemini_batch_model: str = "gemini-3.5-transcribe-preview"
     gemini_text_model: str = "gemini-3.5-flash"
     auto_translate: bool = True
