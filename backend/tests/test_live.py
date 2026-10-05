@@ -171,6 +171,7 @@ def test_default_live_model_is_supported_by_gemini_live_api() -> None:
     from app.core.config import Settings
 
     assert Settings().gemini_live_model == "gemini-live-2.5-flash-native-audio"
+    assert Settings(gemini_live_model="gemini-3.5-transcribe-preview").gemini_live_model == "gemini-live-2.5-flash-native-audio"
 
 
 def test_live_chunk_disables_gemini_speakers_when_toggle_is_off(monkeypatch) -> None:

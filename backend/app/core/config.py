@@ -73,6 +73,12 @@ class Settings(BaseSettings):
     def enforce_tamil_translation_target(self) -> "Settings":
         """Keep deployment/environment overrides from selecting another target."""
         self.target_language = Language.tamil
+        # Older Render environments may retain GEMINI_LIVE_MODEL even after a
+        # Blueprint update. Never allow a generateContent transcription model
+        # to reach the persistent Gemini Live API: it closes the websocket with
+        # INVALID_ARGUMENT/1007 before the first audio frame.
+        if "transcribe" in self.gemini_live_model.lower():
+            self.gemini_live_model = "gemini-live-2.5-flash-native-audio"
         return self
 
     @property
