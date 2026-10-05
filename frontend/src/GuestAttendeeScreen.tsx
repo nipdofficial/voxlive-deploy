@@ -47,6 +47,13 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
   const participantView = joined || hasJoined;
 
   useEffect(() => {
+    if (Platform.OS === "web" && typeof document !== "undefined") {
+      document.documentElement.style.backgroundColor = "#100E14";
+      document.body.style.backgroundColor = "#100E14";
+    }
+  }, []);
+
+  useEffect(() => {
     void getSessionInfo(roomCode).then((session) => {
       setInfo(session);
       setStatus(session.is_started ? session.is_active ? "ready" : "ended" : "waiting");
@@ -260,9 +267,9 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
 }
 
 const createStyles = () => StyleSheet.create({
-  page: { flex: 1, backgroundColor: "#100E14" },
+  page: { flex: 1, backgroundColor: "#100E14", minHeight: Platform.OS === "web" ? ("100vh" as any) : "100%" },
   glow: { position: "absolute", width: 500, height: 500, borderRadius: 250, top: -260, alignSelf: "center", backgroundColor: "rgba(100,70,170,0.10)" },
-  content: { width: "100%", maxWidth: 820, alignSelf: "center", padding: 24, gap: 16 },
+  content: { width: "100%", maxWidth: 820, alignSelf: "center", padding: 24, gap: 16, flexGrow: 1 },
   brand: { flexDirection: "row", alignItems: "center", gap: 10 },
   logo: { width: 42, height: 42, borderRadius: 13, backgroundColor: "#755BD0", alignItems: "center", justifyContent: "center" },
   brandName: { color: "#F5F2FA", fontFamily: "DMSans_700Bold", fontSize: 18 },

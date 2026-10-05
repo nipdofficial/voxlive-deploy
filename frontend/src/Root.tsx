@@ -55,6 +55,14 @@ export default function Root() {
     endLocalSession(null);
   }, [session, endLocalSession]);
 
+  useEffect(() => {
+    if (Platform.OS === "web" && typeof document !== "undefined") {
+      const bg = authPalette(isDark).bg;
+      document.documentElement.style.backgroundColor = bg;
+      document.body.style.backgroundColor = bg;
+    }
+  }, [isDark]);
+
   // Confirm a restored session is still valid, then keep it marked active.
   useEffect(() => {
     if (!session) return;
