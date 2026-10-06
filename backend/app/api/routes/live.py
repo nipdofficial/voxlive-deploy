@@ -21,7 +21,14 @@ from app.models.schemas import (
     TranscriptRecord,
     TranscriptSegment,
 )
-from app.services.audio_service import gate_pcm_noise, pcm_rms as _pcm_rms, wav_rms
+from app.services.audio_service import (
+    SpeechActivityDetector,
+    contains_speech,
+    gate_pcm_noise,
+    pcm_rms as _pcm_rms,
+    wav_contains_speech,
+    wav_rms,
+)
 from app.services.diarization_service import diarize_file, merge_transcript_and_speakers
 from app.services.gemini_service import (
     GeminiService,
@@ -283,11 +290,19 @@ async def _finalize_live(record: TranscriptRecord, path: Path) -> None:
                 audio = await asyncio.to_thread(path.read_bytes)
                 inline_limit = settings.max_upload_mb * 1024 * 1024
                 energy = wav_rms(audio)
+                has_voice = wav_contains_speech(
+                    audio,
+                    getattr(settings, "live_voice_rms_threshold", 180.0),
+                )
                 silence_threshold = max(
                     getattr(settings, "live_silence_rms_threshold", 0.0),
                     getattr(settings, "live_voice_rms_threshold", 180.0),
                 )
-                if energy is not None and energy < silence_threshold:
+                if has_voice is False or (
+                    has_voice is None
+                    and energy is not None
+                    and energy < silence_threshold
+                ):
                     record.segments = []
                 elif len(audio) <= inline_limit:
                     final_segments = await GeminiService().transcribe_file(
@@ -444,6 +459,9 @@ async def live_transcription(websocket: WebSocket) -> None:
         last_final_end = 0.0
         queued_preview_offset = 0.0
         last_voice_input_at: float | None = None
+        voice_activity = SpeechActivityDetector(
+            start.sample_rate, settings.live_voice_rms_threshold
+        )
 
         async def translate_live_segment(segment: TranscriptSegment) -> None:
             """Add Tamil to one committed line without blocking live captions."""
@@ -536,9 +554,8 @@ async def live_transcription(websocket: WebSocket) -> None:
                         fallback_offset = next_offset + len(next_chunk) / (start.sample_rate * 2)
 
         async def process_fallback_chunk(chunk: bytes, offset: float) -> None:
-            if _pcm_rms(chunk) < max(
-                settings.live_silence_rms_threshold,
-                settings.live_voice_rms_threshold,
+            if not contains_speech(
+                chunk, sample_rate, settings.live_voice_rms_threshold
             ):
                 return
             segments = await _transcribe_live_chunk(
@@ -667,7 +684,7 @@ async def live_transcription(websocket: WebSocket) -> None:
                 pending.extend(chunk)
                 while len(pending) >= chunk_bytes:
                     captured_chunk = bytes(pending[:chunk_bytes])
-                    if _pcm_rms(captured_chunk) >= settings.live_voice_rms_threshold:
+                    if voice_activity.feed(captured_chunk):
                         last_voice_input_at = time.monotonic()
                     live_chunk = _gate_live_pcm(
                         captured_chunk, settings.live_voice_rms_threshold

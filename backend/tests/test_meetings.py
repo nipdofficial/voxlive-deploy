@@ -110,8 +110,9 @@ def test_reconnect_gap_keeps_room_timeline(monkeypatch) -> None:
     assert len(state.pending) == 2 * 16_000 * 2
 
 
-def test_managed_meeting_gates_quiet_mic_noise_before_saving_and_transcribing(monkeypatch) -> None:
+def test_managed_meeting_preserves_audio_and_vad_rejects_quiet_noise(monkeypatch) -> None:
     from app.services import meeting_service
+    from app.services.audio_service import SpeechActivityDetector
     from app.models.schemas import Language, SessionType, TranscriptRecord
 
     session = meeting_service.MeetingSession(
@@ -134,9 +135,12 @@ def test_managed_meeting_gates_quiet_mic_noise_before_saving_and_transcribing(mo
 
     asyncio.run(session.ingest_pcm(state, quiet_noise))
 
-    assert state.pcm == bytes(len(quiet_noise))
-    queued, _, _ = state.queue.get_nowait()
-    assert queued == bytes(len(queued))
+    assert state.pcm == quiet_noise
+    queued_chunks = []
+    while not state.queue.empty():
+        queued_chunks.append(state.queue.get_nowait()[0])
+    assert b"".join(queued_chunks) == quiet_noise
+    assert not SpeechActivityDetector(energy_floor=120.0).feed(b"".join(queued_chunks))
 
 
 def test_canonical_live_segments_have_stable_ordered_ids() -> None:

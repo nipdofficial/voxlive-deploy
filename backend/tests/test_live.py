@@ -1,5 +1,6 @@
 import asyncio
 import io
+import math
 import struct
 import wave
 from pathlib import Path
@@ -185,6 +186,86 @@ def test_live_provider_output_requires_recent_voice_activity() -> None:
     assert not live._has_recent_voice_activity(None, 10.0, 4.0)
     assert live._has_recent_voice_activity(8.0, 10.0, 4.0)
     assert not live._has_recent_voice_activity(5.0, 10.0, 4.0)
+
+
+def test_voice_activity_detector_rejects_silence_and_quiet_room_hum() -> None:
+    from app.services.audio_service import contains_speech
+
+    sample_rate = 16_000
+    samples = sample_rate * 2
+    silence = bytes(samples * 2)
+    quiet_hum = struct.pack(
+        f"<{samples}h",
+        *[
+            int(40 * math.sin(2 * math.pi * 60 * index / sample_rate))
+            for index in range(samples)
+        ],
+    )
+
+    assert not contains_speech(silence)
+    assert not contains_speech(quiet_hum)
+
+
+def test_voice_activity_detector_handles_split_pcm_frames_and_voiced_audio() -> None:
+    from app.services.audio_service import SpeechActivityDetector, contains_speech
+
+    sample_rate = 16_000
+    samples = sample_rate
+    voiced = struct.pack(
+        f"<{samples}h",
+        *[
+            int(
+                900
+                * sum(
+                    math.sin(2 * math.pi * frequency * index / sample_rate) / harmonic
+                    for harmonic, frequency in enumerate((160, 320, 480, 640), 1)
+                )
+            )
+            for index in range(samples)
+        ],
+    )
+    detector = SpeechActivityDetector()
+
+    assert contains_speech(voiced)
+    assert not detector.feed(voiced[:400])
+    assert detector.feed(voiced[400:])
+
+
+def test_silent_final_audio_clears_false_live_preview(monkeypatch, tmp_path: Path) -> None:
+    path = tmp_path / "silent.wav"
+    path.write_bytes(live._pcm_wav_bytes(bytes(16_000 * 2), 16_000))
+    record = TranscriptRecord(
+        title="Silent live test",
+        language=Language.sinhala,
+        session_type=SessionType.live,
+        status=JobStatus.processing,
+        segments=[TranscriptSegment(start=0, end=1, text="fabricated preview")],
+    )
+
+    async def unexpected_transcription(*_args, **_kwargs):
+        raise AssertionError("Gemini must not be called for silent audio")
+
+    async def ignore_save(_record):
+        return _record
+
+    monkeypatch.setattr(live, "GeminiService", lambda: SimpleNamespace(transcribe_file=unexpected_transcription))
+    monkeypatch.setattr(live, "save_record", ignore_save)
+    monkeypatch.setattr(
+        live,
+        "get_settings",
+        lambda: SimpleNamespace(
+            live_finalize_full_audio=True,
+            max_upload_mb=20,
+            live_voice_rms_threshold=180.0,
+            live_silence_rms_threshold=20.0,
+        ),
+    )
+
+    asyncio.run(live._finalize_live(record, path))
+
+    assert record.status == JobStatus.completed
+    assert record.segments == []
+    assert record.transcript == ""
 
 
 def test_unicode_script_overrides_conflicting_live_language_code() -> None:

@@ -17,7 +17,7 @@ from app.models.schemas import (
     SessionType,
     TranscriptRecord,
 )
-from app.services.audio_service import wav_rms
+from app.services.audio_service import wav_contains_speech, wav_rms
 from app.services.diarization_service import diarize_file, merge_transcript_and_speakers
 from app.services.gemini_service import GeminiService
 
@@ -129,9 +129,16 @@ async def _process(record: TranscriptRecord, path: Path, mime_type: str) -> None
         gemini = GeminiService()
         energy = wav_rms(audio) if path.suffix.lower() == ".wav" else None
         settings = get_settings()
-        if energy is not None and energy < max(
-            settings.live_silence_rms_threshold,
-            settings.live_voice_rms_threshold,
+        has_voice = (
+            wav_contains_speech(audio, settings.live_voice_rms_threshold)
+            if path.suffix.lower() == ".wav"
+            else None
+        )
+        if has_voice is False or (
+            has_voice is None
+            and energy is not None
+            and energy
+            < max(settings.live_silence_rms_threshold, settings.live_voice_rms_threshold)
         ):
             transcript = []
         else:

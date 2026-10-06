@@ -20,7 +20,7 @@ from app.models.schemas import (
     TranscriptRecord,
     TranscriptSegment,
 )
-from app.services.audio_service import gate_pcm_noise, pcm_rms
+from app.services.audio_service import SpeechActivityDetector, contains_speech
 from app.services.diarization_service import diarize_file, merge_transcript_and_speakers
 from app.services.gemini_service import GeminiService
 
@@ -104,6 +104,7 @@ class TrackState:
     )
     worker: asyncio.Task[None] | None = None
     capture_tasks: set[asyncio.Task[None]] = field(default_factory=set)
+    speech_activity: SpeechActivityDetector = field(default_factory=SpeechActivityDetector)
 
     @property
     def duration(self) -> float:
@@ -322,6 +323,9 @@ class MeetingSession:
             start_offset=max(0.0, time.monotonic() - self.started_at),
         )
         settings = get_settings()
+        state.speech_activity = SpeechActivityDetector(
+            energy_floor=settings.live_voice_rms_threshold
+        )
         safe_identity = "".join(
             character if character.isalnum() or character in "-_" else "_"
             for character in identity
@@ -378,10 +382,6 @@ class MeetingSession:
         if self.ending or not data:
             return
         settings = get_settings()
-        # This path handles organizer and LiveKit microphone input; gate it
-        # before both live chunking and durable audio so finalization cannot
-        # reinterpret quiet room noise as words.
-        data = gate_pcm_noise(data, settings.live_voice_rms_threshold)
         chunk_bytes = int(settings.live_chunk_seconds * SAMPLE_RATE * 2)
         overlap_bytes = min(
             chunk_bytes // 2,
@@ -425,10 +425,7 @@ class MeetingSession:
             if queued is None:
                 return
             chunk, offset, commit_after = queued
-            if pcm_rms(chunk) < max(
-                settings.live_silence_rms_threshold,
-                settings.live_voice_rms_threshold,
-            ):
+            if not state.speech_activity.feed(chunk):
                 continue
             try:
                 raw = await gemini.transcribe_file(
@@ -759,9 +756,8 @@ class MeetingSession:
             await asyncio.to_thread(path.write_bytes, audio)
         self.record.participant_audio[state.identity] = filename
         try:
-            if pcm_rms(pcm_for_rms) < max(
-                settings.live_silence_rms_threshold,
-                settings.live_voice_rms_threshold,
+            if not contains_speech(
+                pcm_for_rms, SAMPLE_RATE, settings.live_voice_rms_threshold
             ):
                 final: list[TranscriptSegment] = []
             else:
