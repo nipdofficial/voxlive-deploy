@@ -72,12 +72,6 @@ export async function startWebAudioStream(
     highPass.type = "highpass";
     highPass.frequency.value = 80;
     highPass.Q.value = 0.7;
-    const compressor = context.createDynamicsCompressor();
-    compressor.threshold.value = -50;
-    compressor.knee.value = 24;
-    compressor.ratio.value = 4;
-    compressor.attack.value = 0.003;
-    compressor.release.value = 0.25;
     const silentOutput = context.createGain();
     silentOutput.gain.value = 0;
 
@@ -115,14 +109,12 @@ export async function startWebAudioStream(
       });
       worklet.port.onmessage = (event: MessageEvent<Float32Array>) => emit(event.data, context!.sampleRate);
       source.connect(highPass);
-      highPass.connect(compressor);
-      compressor.connect(worklet);
+      highPass.connect(worklet);
       worklet.connect(silentOutput);
       disconnectProcessor = () => {
         worklet.port.onmessage = null;
         source.disconnect(highPass);
-        highPass.disconnect(compressor);
-        compressor.disconnect(worklet);
+        highPass.disconnect(worklet);
         worklet.disconnect();
       };
     } else {
@@ -130,14 +122,12 @@ export async function startWebAudioStream(
       const legacy = context.createScriptProcessor(4096, 1, 1);
       legacy.onaudioprocess = (event) => emit(event.inputBuffer.getChannelData(0), event.inputBuffer.sampleRate);
       source.connect(highPass);
-      highPass.connect(compressor);
-      compressor.connect(legacy);
+      highPass.connect(legacy);
       legacy.connect(silentOutput);
       disconnectProcessor = () => {
         legacy.onaudioprocess = null;
         source.disconnect(highPass);
-        highPass.disconnect(compressor);
-        compressor.disconnect(legacy);
+        highPass.disconnect(legacy);
         legacy.disconnect();
       };
     }

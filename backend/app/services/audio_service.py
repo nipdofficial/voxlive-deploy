@@ -2,6 +2,7 @@ import io
 import math
 import struct
 import wave
+from collections import deque
 
 import webrtcvad
 
@@ -17,22 +18,32 @@ class SpeechActivityDetector:
         self.frame_bytes = sample_rate // 50 * 2  # 20 ms, mono PCM16
         self.pending = bytearray()
         self.vad = webrtcvad.Vad(3)
+        # One isolated click or burst should not unlock a generative model.
+        # Require 3 voiced frames in a rolling 100 ms window, then retain a
+        # short hangover so unvoiced consonants and natural pauses survive.
+        self.recent_frames: deque[bool] = deque(maxlen=5)
+        self.hangover_frames = 0
 
     def feed(self, pcm: bytes) -> bool:
         """Return true when this input contains a voice-like 20 ms frame."""
         self.pending.extend(pcm[: len(pcm) - len(pcm) % 2])
-        detected = False
+        active = False
         offset = 0
         while offset + self.frame_bytes <= len(self.pending):
             frame = bytes(self.pending[offset : offset + self.frame_bytes])
             offset += self.frame_bytes
-            if pcm_rms(frame) >= self.energy_floor and self.vad.is_speech(
+            voiced = pcm_rms(frame) >= self.energy_floor and self.vad.is_speech(
                 frame, self.sample_rate
-            ):
-                detected = True
+            )
+            self.recent_frames.append(voiced)
+            if sum(self.recent_frames) >= 3:
+                self.hangover_frames = 15  # 300 ms at 20 ms per frame
+            elif self.hangover_frames:
+                self.hangover_frames -= 1
+            active = active or self.hangover_frames > 0
         if offset:
             del self.pending[:offset]
-        return detected
+        return active
 
 
 def contains_speech(

@@ -231,6 +231,30 @@ def test_voice_activity_detector_handles_split_pcm_frames_and_voiced_audio() -> 
     assert detector.feed(voiced[400:])
 
 
+def test_voice_activity_detector_requires_sustained_speech_not_a_single_burst() -> None:
+    from app.services.audio_service import SpeechActivityDetector
+
+    sample_rate = 16_000
+    voiced = struct.pack(
+        f"<{sample_rate}h",
+        *[
+            int(
+                900
+                * sum(
+                    math.sin(2 * math.pi * frequency * index / sample_rate) / harmonic
+                    for harmonic, frequency in enumerate((160, 320, 480, 640), 1)
+                )
+            )
+            for index in range(sample_rate)
+        ],
+    )
+    detector = SpeechActivityDetector()
+
+    # Two 20 ms voiced frames are not enough to release audio to the model.
+    assert not detector.feed(voiced[:640 * 2])
+    assert detector.feed(voiced[640 * 2:])
+
+
 def test_silent_final_audio_clears_false_live_preview(monkeypatch, tmp_path: Path) -> None:
     path = tmp_path / "silent.wav"
     path.write_bytes(live._pcm_wav_bytes(bytes(16_000 * 2), 16_000))

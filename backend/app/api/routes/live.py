@@ -684,10 +684,16 @@ async def live_transcription(websocket: WebSocket) -> None:
                 pending.extend(chunk)
                 while len(pending) >= chunk_bytes:
                     captured_chunk = bytes(pending[:chunk_bytes])
-                    if voice_activity.feed(captured_chunk):
+                    has_sustained_voice = voice_activity.feed(captured_chunk)
+                    if has_sustained_voice:
                         last_voice_input_at = time.monotonic()
-                    live_chunk = _gate_live_pcm(
-                        captured_chunk, settings.live_voice_rms_threshold
+                    # Do not let ambient audio reach Gemini while the temporal
+                    # speech gate is closed. Keep silence bytes so audio timing
+                    # remains aligned with the session clock.
+                    live_chunk = (
+                        _gate_live_pcm(captured_chunk, settings.live_voice_rms_threshold)
+                        if has_sustained_voice
+                        else bytes(len(captured_chunk))
                     )
                     raw_file.write(live_chunk)
                     if queue.full():
