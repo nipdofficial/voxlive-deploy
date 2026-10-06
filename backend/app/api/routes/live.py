@@ -72,12 +72,26 @@ def _live_text_matches_mode(text: str, language: Language) -> bool:
         Language.tamil: SpokenLanguage.tamil,
         Language.english: SpokenLanguage.english,
     }.get(language)
+    detected = detect_script_language(text)
+    if language == Language.mixed:
+        # Mixed mode is intentionally limited to Sinhala, Tamil and English.
+        return detected in {
+            SpokenLanguage.sinhala,
+            SpokenLanguage.tamil,
+            SpokenLanguage.english,
+        } or not any(char.isalpha() for char in text)
     if expected is None:
         return True
-    detected = detect_script_language(text)
     if detected == SpokenLanguage.unknown:
         return not any(char.isalpha() for char in text)
     return detected == expected and has_expected_script(text, expected)
+
+
+def _gate_live_pcm(pcm: bytes, threshold: float) -> bytes:
+    """Replace quiet mic noise with silence while preserving audio timing."""
+    if not pcm or _pcm_rms(pcm) < threshold:
+        return bytes(len(pcm))
+    return pcm
 
 
 def _live_detected_language(
@@ -222,7 +236,7 @@ async def _transcribe_live_chunk(
         "audio_duration_seconds": len(chunk) / (sample_rate * 2),
         "request_timeout_seconds": settings.gemini_live_timeout_seconds,
     }
-    return await gemini.transcribe_file(
+    segments = await gemini.transcribe_file(
         _pcm_wav_bytes(chunk, sample_rate),
         "audio/wav",
         record.language,
@@ -236,6 +250,11 @@ async def _transcribe_live_chunk(
         verify_mixed_language=False,
         use_structured_mixed_model=True,
     )
+    return [
+        segment
+        for segment in segments
+        if _live_text_matches_mode(segment.text, record.language)
+    ]
 
 
 async def _finalize_live(record: TranscriptRecord, path: Path) -> None:
@@ -274,7 +293,17 @@ async def _finalize_live(record: TranscriptRecord, path: Path) -> None:
                     # short/noisy full pass. Never erase useful live captions
                     # in that case; keep the preview as the completed record.
                     if final_segments:
-                        record.segments = final_segments
+                        record.segments = [
+                            segment
+                            for segment in final_segments
+                            if _live_text_matches_mode(segment.text, record.language)
+                        ]
+                        if not record.segments and preview_segments:
+                            record.segments = preview_segments
+                            record.error = (
+                                "Final pass returned text outside the selected language mode; "
+                                "live captions retained"
+                            )
                     else:
                         record.segments = preview_segments
                         record.error = (
@@ -605,11 +634,14 @@ async def live_transcription(websocket: WebSocket) -> None:
                     raise ValueError(
                         f"Live session exceeds the {live_max_minutes:g} minute limit"
                     )
-                raw_file.write(chunk)
                 pcm_size += len(chunk)
                 pending.extend(chunk)
                 while len(pending) >= chunk_bytes:
-                    live_chunk = bytes(pending[:chunk_bytes])
+                    live_chunk = _gate_live_pcm(
+                        bytes(pending[:chunk_bytes]),
+                        settings.live_voice_rms_threshold,
+                    )
+                    raw_file.write(live_chunk)
                     if queue.full():
                         queue.get_nowait()
                     queue.put_nowait((live_chunk, queued_preview_offset))
@@ -623,9 +655,19 @@ async def live_transcription(websocket: WebSocket) -> None:
                     # to finish, then stop waiting for stale preview calls.
                     if fallback_active:
                         if pending:
-                            await queue.put((bytes(pending), queued_preview_offset))
+                            tail = _gate_live_pcm(
+                                bytes(pending), settings.live_voice_rms_threshold
+                            )
+                            raw_file.write(tail)
+                            await queue.put((tail, queued_preview_offset))
                         pending.clear()
                     else:
+                        if pending:
+                            raw_file.write(
+                                _gate_live_pcm(
+                                    bytes(pending), settings.live_voice_rms_threshold
+                                )
+                            )
                         pending.clear()
                         while not queue.empty():
                             queue.get_nowait()
@@ -643,7 +685,11 @@ async def live_transcription(websocket: WebSocket) -> None:
                     # Preserve the old drain behavior when the full pass is
                     # disabled or the recording is too large for inline input.
                     if pending:
-                        await queue.put((bytes(pending), queued_preview_offset))
+                        tail = _gate_live_pcm(
+                            bytes(pending), settings.live_voice_rms_threshold
+                        )
+                        raw_file.write(tail)
+                        await queue.put((tail, queued_preview_offset))
                         pending.clear()
                     await queue.put(None)
                     await workers_gather

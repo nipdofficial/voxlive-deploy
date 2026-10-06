@@ -173,9 +173,24 @@ def test_live_language_hints_cover_only_supported_languages() -> None:
     assert live._live_language_codes(Language.mixed) == ["si-LK", "ta-IN", "en-US"]
 
 
+def test_live_noise_gate_silences_quiet_noise_and_preserves_speech() -> None:
+    quiet_noise = struct.pack("<1000h", *([40, -40] * 500))
+    speech = struct.pack("<1000h", *([800, -800] * 500))
+
+    assert live._gate_live_pcm(quiet_noise, 120.0) == bytes(len(quiet_noise))
+    assert live._gate_live_pcm(speech, 120.0) == speech
+
+
 def test_unicode_script_overrides_conflicting_live_language_code() -> None:
     assert live._live_detected_language("si-LK", "வணக்கம்") == SpokenLanguage.tamil
     assert live._live_detected_language("ta-IN", "ආයුබෝවන්") == SpokenLanguage.sinhala
+
+
+def test_mixed_mode_only_accepts_sinhala_tamil_and_english_scripts() -> None:
+    assert live._live_text_matches_mode("ආයුබෝවන්", Language.mixed)
+    assert live._live_text_matches_mode("வணக்கம்", Language.mixed)
+    assert live._live_text_matches_mode("hello there", Language.mixed)
+    assert not live._live_text_matches_mode("नमस्ते", Language.mixed)
 
 
 def test_live_mono_language_rejects_transcription_in_wrong_script() -> None:
