@@ -18,26 +18,35 @@ from app.models.schemas import (
 
 LANGUAGE_GUIDANCE = {
     Language.sinhala: (
-        "Transcribe Sinhala speech only, in Sinhala script, without translation. "
+        "First identify the language actually spoken from the audio, not from this selected setting. "
+        "Transcribe only speech that is genuinely spoken in Sinhala, in Sinhala script. "
+        "If the voice is speaking Tamil, English, another language, or the audio is unclear, "
+        "return no segment; never translate or rewrite it as Sinhala. "
         "Omit separate Tamil or English utterances; ordinary loanwords embedded in a "
         "Sinhala sentence may remain as naturally written. Every non-empty segment must "
         "contain native Sinhala Unicode characters (U+0D80-U+0DFF). Never transliterate "
         "Sinhala into Tamil, Devanagari, Malayalam, Kannada, or Latin characters. If the "
-        "script is unclear, return no segment instead of inventing another script. Set "
-        "detected_language to Sinhala."
+        "script or spoken language is unclear, return no segment instead of inventing "
+        "another script. Set detected_language from the audio, not from this instruction."
     ),
     Language.tamil: (
-        "Transcribe Tamil speech only, in Tamil script, without translation. "
+        "First identify the language actually spoken from the audio, not from this selected setting. "
+        "Transcribe only speech that is genuinely spoken in Tamil, in Tamil script. "
+        "If the voice is speaking Sinhala, English, another language, or the audio is unclear, "
+        "return no segment; never translate or rewrite it as Tamil. "
         "Omit separate Sinhala or English utterances; ordinary loanwords embedded in a "
         "Tamil sentence may remain as naturally written. Every non-empty segment must "
         "contain native Tamil Unicode characters (U+0B80-U+0BFF). Never transliterate "
         "Tamil into Sinhala, Devanagari, Malayalam, Kannada, or Latin characters. If the "
-        "script is unclear, return no segment instead of inventing another script. Set "
-        "detected_language to Tamil."
+        "script or spoken language is unclear, return no segment instead of inventing "
+        "another script. Set detected_language from the audio, not from this instruction."
     ),
     Language.english: (
-        "Transcribe English speech only, without translation. Omit separate Sinhala or "
-        "Tamil utterances. Set detected_language to English."
+        "First identify the language actually spoken from the audio, not from this selected setting. "
+        "Transcribe only speech that is genuinely spoken in English. If the voice is speaking "
+        "Sinhala, Tamil, another language, or the audio is unclear, return no segment instead "
+        "of translating or rewriting it as English. Omit separate Sinhala or Tamil utterances. "
+        "Set detected_language from the audio, not from this instruction."
     ),
     Language.mixed: (
         "The audio may switch between Sinhala, Tamil, and English. Transcribe all three, "
@@ -110,6 +119,7 @@ def normalize_language_segments(
     expected = REQUESTED_SPOKEN_LANGUAGE.get(requested)
     for segment in segments:
         detected = detect_script_language(segment.text)
+        reported = segment.detected_language
         if (
             requested == Language.mixed
             and detected == SpokenLanguage.unknown
@@ -120,6 +130,12 @@ def normalize_language_segments(
             continue
         if expected and detected not in (expected, SpokenLanguage.unknown):
             continue
+        if expected and reported not in (None, expected):
+            # Structured audio responses can identify speech in a different
+            # language even when the model wrote it in the requested script.
+            # Do not relabel that speech as the selected language.
+            if reported != SpokenLanguage.unknown or detected != expected:
+                continue
         # Unknown-script alphabetic output is usually a transliteration or a
         # hallucinated Indic script. Keep punctuation/numbers, but do not let
         # those wrong-script lines reach the user in a strict language mode.
@@ -265,13 +281,21 @@ class GeminiService:
             "Use seconds relative to the start of this audio clip for start and end."
         )
         if translate_to and not _is_transcription_model(model or self.settings.gemini_batch_model):
+            source_language = (
+                "Sinhala, Tamil, or English, identified per utterance"
+                if language == Language.mixed
+                else f"Sinhala only" if language == Language.sinhala
+                else f"Tamil only" if language == Language.tamil
+                else f"English only"
+            )
             prompt += (
                 f" For every segment, translated_text is REQUIRED and must be written in "
                 f"{translate_to.value}. "
-                "Translate the spoken meaning faithfully, including when the source is "
-                "Sinhala, Tamil, English, or mixed. If the source is already Tamil, copy "
-                "the original text into translated_text. Never leave translated_text empty "
-                "and never replace the original text."
+                f"Translate only a verified {source_language} transcript faithfully. "
+                "This translation request does not permit transcribing, translating, or "
+                "rewriting speech excluded by the selected input-language mode. If the "
+                "source is already Tamil, copy the original text into translated_text. "
+                "Never leave translated_text empty and never replace the original text."
             )
         timeout_seconds = request_timeout_seconds or self.settings.gemini_batch_timeout_seconds
         selected_model = model or self.settings.gemini_batch_model

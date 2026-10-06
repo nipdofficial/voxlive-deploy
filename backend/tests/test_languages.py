@@ -16,8 +16,12 @@ def test_malformed_literal_unicode_escape_is_repaired() -> None:
     assert result["segments"][0]["text"] == r"C:\users"
 
 
-def segment(text: str) -> TranscriptSegment:
-    return TranscriptSegment(start=0, end=1, text=text)
+def segment(
+    text: str, detected_language: SpokenLanguage | None = None
+) -> TranscriptSegment:
+    return TranscriptSegment(
+        start=0, end=1, text=text, detected_language=detected_language
+    )
 
 
 def test_script_detection_covers_supported_languages() -> None:
@@ -61,6 +65,17 @@ def test_monolingual_mode_filters_other_scripts() -> None:
     assert result[0].detected_language == SpokenLanguage.tamil
 
 
+def test_monolingual_mode_does_not_relabel_conflicting_audio_language() -> None:
+    result = normalize_language_segments(
+        [
+            segment("සිංහල වචන", SpokenLanguage.sinhala),
+            segment("සිංහල වචන", SpokenLanguage.english),
+        ],
+        Language.sinhala,
+    )
+    assert [item.detected_language for item in result] == [SpokenLanguage.sinhala]
+
+
 def test_strict_modes_reject_transliteration_and_wrong_indic_scripts() -> None:
     result = normalize_language_segments(
         [segment("एक नमस्ते"), segment("vanakkam"), segment("සිංහල වාක්‍යයක්")],
@@ -86,9 +101,10 @@ def test_mixed_mode_labels_each_native_script() -> None:
 
 
 def test_prompts_explicitly_separate_single_and_mixed_modes() -> None:
-    assert "speech only" in LANGUAGE_GUIDANCE[Language.sinhala]
-    assert "speech only" in LANGUAGE_GUIDANCE[Language.tamil]
-    assert "speech only" in LANGUAGE_GUIDANCE[Language.english]
+    assert "actually spoken" in LANGUAGE_GUIDANCE[Language.sinhala]
+    assert "actually spoken" in LANGUAGE_GUIDANCE[Language.tamil]
+    assert "actually spoken" in LANGUAGE_GUIDANCE[Language.english]
+    assert "never translate or rewrite it as Sinhala" in LANGUAGE_GUIDANCE[Language.sinhala]
     assert "Transcribe all three" in LANGUAGE_GUIDANCE[Language.mixed]
     assert "transliteration" in LANGUAGE_GUIDANCE[Language.mixed]
 
