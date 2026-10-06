@@ -27,7 +27,7 @@ def test_gemini_summary_uses_structured_response() -> None:
 
     service = GeminiService.__new__(GeminiService)
     service.settings = SimpleNamespace(
-        gemini_batch_model="gemini-3.5-flash",
+        gemini_batch_model="gemini-3.8-flash",
         gemini_batch_timeout_seconds=10,
         gemini_max_retries=0,
         gemini_retry_base_seconds=0,
@@ -39,7 +39,7 @@ def test_gemini_summary_uses_structured_response() -> None:
     )
 
     assert result == expected
-    assert request["model"] == "gemini-3.5-flash"
+    assert request["model"] == "gemini-3.8-flash"
     assert request["config"].response_schema is SummaryContent
 
 

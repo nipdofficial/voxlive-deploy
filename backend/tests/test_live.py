@@ -170,8 +170,11 @@ def test_live_chunk_requests_provisional_gemini_speakers(monkeypatch) -> None:
 def test_default_live_model_is_supported_by_gemini_live_api() -> None:
     from app.core.config import Settings
 
-    assert Settings().gemini_live_model == "gemini-live-2.5-flash-native-audio"
-    assert Settings(gemini_live_model="gemini-3.5-transcribe-preview").gemini_live_model == "gemini-live-2.5-flash-native-audio"
+    assert Settings().gemini_live_model == "gemini-3.8-live"
+    assert Settings(gemini_live_model="gemini-3.5-transcribe-preview").gemini_live_model == "gemini-3.8-live"
+    assert Settings(gemini_live_model="gemini-live-2.5-flash-native-audio").gemini_live_model == "gemini-3.8-live"
+    assert Settings(gemini_batch_model="gemini-2.5-flash").gemini_batch_model == "gemini-3.8-flash"
+    assert Settings(gemini_text_model="gemini-2.5-flash").gemini_text_model == "gemini-3.8-flash"
 
 
 def test_live_chunk_disables_gemini_speakers_when_toggle_is_off(monkeypatch) -> None:

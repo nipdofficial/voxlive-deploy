@@ -28,12 +28,12 @@ class Settings(BaseSettings):
     # Gemini Live API uses a different model family from generateContent.
     # The transcribe-preview model is not accepted by the Live API and closes
     # the websocket with INVALID_ARGUMENT/1007.
-    gemini_live_model: str = "gemini-live-2.5-flash-native-audio"
+    gemini_live_model: str = "gemini-3.8-live"
     # Use the generally available multimodal Flash model for live speech.
     # The transcribe preview endpoint was returning RESOURCE_EXHAUSTED for
     # meeting chunks and required a second model call for Tamil translation.
-    gemini_batch_model: str = "gemini-2.5-flash"
-    gemini_text_model: str = "gemini-2.5-flash"
+    gemini_batch_model: str = "gemini-3.8-flash"
+    gemini_text_model: str = "gemini-3.8-flash"
     auto_translate: bool = True
     target_language: Language = Language.tamil
     gemini_max_retries: int = 3
@@ -76,12 +76,26 @@ class Settings(BaseSettings):
     def enforce_tamil_translation_target(self) -> "Settings":
         """Keep deployment/environment overrides from selecting another target."""
         self.target_language = Language.tamil
-        # Older Render environments may retain GEMINI_LIVE_MODEL even after a
-        # Blueprint update. Never allow a generateContent transcription model
-        # to reach the persistent Gemini Live API: it closes the websocket with
-        # INVALID_ARGUMENT/1007 before the first audio frame.
-        if "transcribe" in self.gemini_live_model.lower():
-            self.gemini_live_model = "gemini-live-2.5-flash-native-audio"
+        # Older Render environments may retain legacy IDs after a Blueprint
+        # update. Use the 3.8 Live API model, never a generateContent/transcribe
+        # model or a 2.5 Live model, for the persistent streaming connection.
+        if "transcribe" in self.gemini_live_model.lower() or self.gemini_live_model in {
+            "gemini-live-2.5-flash-native-audio",
+            "gemini-2.5-flash-native-audio-preview-12-2025",
+        }:
+            self.gemini_live_model = "gemini-3.8-live"
+        if self.gemini_batch_model in {
+            "gemini-2.5-flash",
+            "gemini-3.5-flash",
+            "gemini-3.5-transcribe-preview",
+        }:
+            self.gemini_batch_model = "gemini-3.8-flash"
+        if self.gemini_text_model in {
+            "gemini-2.5-flash",
+            "gemini-3.5-flash",
+            "gemini-3.5-transcribe-preview",
+        }:
+            self.gemini_text_model = "gemini-3.8-flash"
         return self
 
     @property
