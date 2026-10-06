@@ -34,7 +34,7 @@ def test_settings_cannot_change_translation_target() -> None:
 
 def test_native_script_segments_are_not_reclassified_as_english() -> None:
     result = normalize_language_segments(
-        [segment("எனவே, இருக்கிறது"), segment("සිංහල වාක්‍යයක්")],
+        [segment("எனவே, இருக்கிறது"), segment("සිංහල වාක්‍යයක්"), segment("नमस्ते")],
         Language.mixed,
     )
 
@@ -42,6 +42,13 @@ def test_native_script_segments_are_not_reclassified_as_english() -> None:
         SpokenLanguage.tamil,
         SpokenLanguage.sinhala,
     ]
+
+
+def test_mixed_mode_drops_unrelated_scripts() -> None:
+    result = normalize_language_segments(
+        [segment("தமிழ்"), segment("ನಮಸ್ಕಾರ"), segment("Hello")], Language.mixed
+    )
+    assert [item.text for item in result] == ["தமிழ்", "Hello"]
 
 
 def test_monolingual_mode_filters_other_scripts() -> None:

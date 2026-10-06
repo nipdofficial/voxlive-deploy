@@ -1,6 +1,7 @@
 import asyncio
 import json
 import re
+import struct
 import wave
 from types import SimpleNamespace
 
@@ -107,6 +108,35 @@ def test_reconnect_gap_keeps_room_timeline(monkeypatch) -> None:
 
     assert state.duration == 3.0
     assert len(state.pending) == 2 * 16_000 * 2
+
+
+def test_managed_meeting_gates_quiet_mic_noise_before_saving_and_transcribing(monkeypatch) -> None:
+    from app.services import meeting_service
+    from app.models.schemas import Language, SessionType, TranscriptRecord
+
+    session = meeting_service.MeetingSession(
+        "ABCDEFGH", "secret",
+        TranscriptRecord(title="Meeting", language=Language.sinhala, session_type=SessionType.meeting),
+        Language.sinhala,
+    )
+    state = TrackState("host", "Host", False, 0)
+    monkeypatch.setattr(
+        meeting_service,
+        "get_settings",
+        lambda: SimpleNamespace(
+            live_voice_rms_threshold=120.0,
+            live_chunk_seconds=0.1,
+            live_chunk_overlap_seconds=0.02,
+            live_preview_queue_size=4,
+        ),
+    )
+    quiet_noise = struct.pack("<3200h", *([40, -40] * 1600))
+
+    asyncio.run(session.ingest_pcm(state, quiet_noise))
+
+    assert state.pcm == bytes(len(quiet_noise))
+    queued, _, _ = state.queue.get_nowait()
+    assert queued == bytes(len(queued))
 
 
 def test_canonical_live_segments_have_stable_ordered_ids() -> None:

@@ -14,6 +14,13 @@ def pcm_rms(pcm: bytes) -> float:
     return math.sqrt(sum((sample - mean) ** 2 for sample in samples) / len(samples))
 
 
+def gate_pcm_noise(pcm: bytes, threshold: float) -> bytes:
+    """Silence low-level microphone noise without changing the audio timeline."""
+    if not pcm or pcm_rms(pcm) < threshold:
+        return bytes(len(pcm))
+    return pcm
+
+
 def wav_rms(audio: bytes) -> float | None:
     """Read mono/stereo 16-bit WAV energy, or return None for another encoding."""
     try:

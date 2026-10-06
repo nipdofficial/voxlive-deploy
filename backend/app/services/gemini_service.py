@@ -110,6 +110,14 @@ def normalize_language_segments(
     expected = REQUESTED_SPOKEN_LANGUAGE.get(requested)
     for segment in segments:
         detected = detect_script_language(segment.text)
+        if (
+            requested == Language.mixed
+            and detected == SpokenLanguage.unknown
+            and any(char.isalpha() for char in segment.text)
+        ):
+            # Mixed mode is limited to Sinhala, Tamil and English. Do not
+            # publish confidently recognized text in an unrelated script.
+            continue
         if expected and detected not in (expected, SpokenLanguage.unknown):
             continue
         # Unknown-script alphabetic output is usually a transliteration or a

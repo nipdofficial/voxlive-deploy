@@ -20,7 +20,7 @@ from app.models.schemas import (
     TranscriptRecord,
     TranscriptSegment,
 )
-from app.services.audio_service import pcm_rms as _pcm_rms, wav_rms
+from app.services.audio_service import gate_pcm_noise, pcm_rms as _pcm_rms, wav_rms
 from app.services.diarization_service import diarize_file, merge_transcript_and_speakers
 from app.services.gemini_service import (
     GeminiService,
@@ -89,9 +89,7 @@ def _live_text_matches_mode(text: str, language: Language) -> bool:
 
 def _gate_live_pcm(pcm: bytes, threshold: float) -> bytes:
     """Replace quiet mic noise with silence while preserving audio timing."""
-    if not pcm or _pcm_rms(pcm) < threshold:
-        return bytes(len(pcm))
-    return pcm
+    return gate_pcm_noise(pcm, threshold)
 
 
 def _live_detected_language(

@@ -20,7 +20,7 @@ from app.models.schemas import (
     TranscriptRecord,
     TranscriptSegment,
 )
-from app.services.audio_service import pcm_rms
+from app.services.audio_service import gate_pcm_noise, pcm_rms
 from app.services.diarization_service import diarize_file, merge_transcript_and_speakers
 from app.services.gemini_service import GeminiService
 
@@ -378,6 +378,10 @@ class MeetingSession:
         if self.ending or not data:
             return
         settings = get_settings()
+        # This path handles organizer and LiveKit microphone input; gate it
+        # before both live chunking and durable audio so finalization cannot
+        # reinterpret quiet room noise as words.
+        data = gate_pcm_noise(data, settings.live_voice_rms_threshold)
         chunk_bytes = int(settings.live_chunk_seconds * SAMPLE_RATE * 2)
         overlap_bytes = min(
             chunk_bytes // 2,
