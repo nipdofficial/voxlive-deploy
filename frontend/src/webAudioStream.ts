@@ -14,7 +14,9 @@ const microphoneConstraints: MediaStreamConstraints = {
     channelCount: 1,
     echoCancellation: true,
     noiseSuppression: true,
-    autoGainControl: true,
+    // AGC boosts room/microphone self-noise during pauses, which can make
+    // the live recognizer invent words even in a quiet room.
+    autoGainControl: false,
   },
 };
 

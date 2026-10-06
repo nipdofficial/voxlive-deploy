@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     live_preview_queue_size: int = 50
     live_silence_rms_threshold: float = 20.0
     # 16-bit PCM RMS below this level is treated as mic/room noise in live mode.
-    live_voice_rms_threshold: float = 120.0
+    live_voice_rms_threshold: float = 180.0
     live_finalize_full_audio: bool = True
     max_live_minutes: float = 120.0
     max_upload_mb: int = 20
