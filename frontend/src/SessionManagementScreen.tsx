@@ -174,9 +174,26 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
   };
 
   const styles = getStyles(isDark);
-  const completedSessions = pastSessions.filter((record) => record.status === "completed" || record.status === "failed");
+  const completedSessions = pastSessions
+    .filter((record) => record.status === "completed" || record.status === "failed")
+    .sort((left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime());
   const activeStatus = activeSession?.info?.status ?? (activeSession?.info?.is_active ? "live" : "ready");
   const statusLabel = activeStatus === "live" ? "LIVE NOW" : activeStatus === "upcoming" ? "UPCOMING" : activeStatus === "ended" ? "ENDED" : "READY TO START";
+  const currentMeetingId = activeSession?.info?.meeting_id;
+  const savedLiveSessions = pastSessions
+    .filter((record) => record.session_type === "Meeting" && record.status === "processing" && record.id !== currentMeetingId)
+    .sort((left, right) => new Date(right.created_at).getTime() - new Date(left.created_at).getTime());
+  const savedUpcomingSessions = pastSessions
+    .filter((record) => record.session_type === "Meeting" && record.status === "queued" && record.scheduled_start
+      && new Date(record.scheduled_start).getTime() > Date.now() && record.id !== currentMeetingId)
+    .sort((left, right) => new Date(left.scheduled_start!).getTime() - new Date(right.scheduled_start!).getTime());
+  const scheduledStartTime = activeSession?.info?.scheduled_start
+    ? new Date(activeSession.info.scheduled_start).getTime()
+    : null;
+  const waitingForSchedule = activeStatus === "upcoming" && scheduledStartTime !== null && scheduledStartTime > Date.now();
+  // Opening the organizer setup is safe for upcoming rooms; the actual start
+  // endpoint enforces the scheduled time.
+  const canChooseStartMode = activeStatus !== "ended";
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
@@ -262,7 +279,7 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
 
             {activeStatus !== "ended" ? <Pressable
               style={[styles.primaryButton, { marginTop: 24 }, starting && { opacity: 0.6 }]}
-              disabled={starting}
+              disabled={starting || !canChooseStartMode}
               onPress={() => {
                 setStarting(true);
                 const action = activeStatus === "live" ? onOpenCreatedSession : onStartCreatedSession;
@@ -271,8 +288,12 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
                   .finally(() => setStarting(false));
               }}
             >
-              {starting ? <ActivityIndicator color="white" /> : <Feather name={activeStatus === "live" ? "mic" : "play-circle"} size={18} color="white" />}
-              <Text style={styles.primaryButtonText}>{activeStatus === "live" ? "Enter Organizer Room" : "Start Meeting Now"}</Text>
+              {starting ? <ActivityIndicator color="white" /> : <Feather name={activeStatus === "live" ? "mic" : "sliders"} size={18} color="white" />}
+              <Text style={styles.primaryButtonText}>{activeStatus === "live"
+                ? "Enter Organizer Room"
+                : waitingForSchedule && scheduledStartTime
+                  ? `Configure upcoming session · starts ${new Date(scheduledStartTime).toLocaleString()}`
+                  : "Choose Live or Upload"}</Text>
             </Pressable> : <View style={styles.endedBanner}><Feather name="check-circle" size={17} color="#55D6A4" /><Text style={styles.endedBannerText}>Meeting ended. This room is closed.</Text></View>}
 
             <Pressable
@@ -328,7 +349,7 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
                 <TextInput style={[styles.input, { marginTop: 8 }]} value={endDate} onChangeText={setEndDate} placeholder="End date: YYYY-MM-DD" placeholderTextColor="#625E70" />
                 <TextInput style={[styles.input, { marginTop: 8 }]} value={endTime} onChangeText={setEndTime} placeholder="End time: HH:MM" placeholderTextColor="#625E70" />
                 <Text style={styles.hint}>Use your local time. The scheduled time is shown below and stored with the session.</Text>
-              </> : <Text style={styles.hint}>Create the room now, then press Start Meeting Now when the organizer is ready.</Text>}
+              </> : <Text style={styles.hint}>Create the room and QR now. When ready, choose Live or Upload before starting the organizer workflow.</Text>}
             </View>
 
             <View style={styles.fieldGroup}>
@@ -366,10 +387,14 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
 
       <View style={[styles.card, styles.controlCard]}>
         <View style={styles.controlHeader}><View><Text style={styles.cardHeader}>Your sessions</Text><Text style={styles.hint}>Monitor live rooms and access completed transcripts.</Text></View><View style={styles.allSessionsBadge}><Feather name="layers" size={13} color="#CDBDFF" /><Text style={styles.allSessionsText}>{completedSessions.length + (activeSession ? 1 : 0)} total</Text></View></View>
-        <View style={styles.sectionHeading}><View style={styles.sectionDot} /><Text style={styles.sectionTitle}>LIVE NOW</Text></View>
-        {activeStatus === "live" && activeSession?.info ? <View style={[styles.sessionListRow, styles.liveRow]}><View style={styles.sessionRowIcon}><Feather name="radio" size={16} color="#55D6A4" /></View><View style={{ flex: 1 }}><Text style={styles.sessionTitle}>{activeSession.title}</Text><Text style={styles.sessionCodeLabel}>Speaker - {activeSession.info.speaker_name || "Organizer"} · {activeSession.info.current_participants} connected</Text></View><View style={styles.livePill}><View style={styles.livePillDot} /><Text style={styles.livePillText}>LIVE</Text></View></View> : <View style={styles.emptyState}><Feather name="radio" size={18} color="#70697D" /><Text style={styles.emptySession}>No live sessions</Text></View>}
+        <View style={styles.sectionHeading}><View style={styles.sectionDot} /><Text style={styles.sectionTitle}>LIVE NOW</Text><Text style={styles.sectionCount}>{savedLiveSessions.length + (activeStatus === "live" ? 1 : 0)}</Text></View>
+        {activeStatus === "live" && activeSession?.info ? <View style={[styles.sessionListRow, styles.liveRow]}><View style={styles.sessionRowIcon}><Feather name="radio" size={16} color="#55D6A4" /></View><View style={{ flex: 1 }}><Text style={styles.sessionTitle}>{activeSession.title}</Text><Text style={styles.sessionCodeLabel}>Speaker - {activeSession.info.speaker_name || "Organizer"} · {activeSession.info.current_participants} connected</Text></View><View style={styles.livePill}><View style={styles.livePillDot} /><Text style={styles.livePillText}>LIVE</Text></View></View> : null}
+        {savedLiveSessions.map((record) => <View key={record.id} style={[styles.sessionListRow, styles.liveRow]}><View style={styles.sessionRowIcon}><Feather name="radio" size={16} color="#55D6A4" /></View><View style={{ flex: 1 }}><Text numberOfLines={1} style={styles.sessionTitle}>{record.title}</Text><Text style={styles.sessionCodeLabel}>Speaker - {record.participants?.[0]?.display_name || "Organizer"} · Started {new Date(record.created_at).toLocaleString()}</Text></View><View style={styles.livePill}><View style={styles.livePillDot} /><Text style={styles.livePillText}>LIVE</Text></View></View>)}
+        {!savedLiveSessions.length && activeStatus !== "live" ? <View style={styles.emptyState}><Feather name="radio" size={18} color="#70697D" /><Text style={styles.emptySession}>No live sessions</Text></View> : null}
         <View style={[styles.sectionHeading, { marginTop: 24 }]}><View style={[styles.sectionDot, { backgroundColor: "#A78BFA" }]} /><Text style={styles.sectionTitle}>UPCOMING</Text></View>
-        {activeStatus === "upcoming" && activeSession?.info ? <View style={styles.sessionListRow}><View style={styles.sessionRowIcon}><Feather name="calendar" size={16} color="#A78BFA" /></View><View style={{ flex: 1 }}><Text style={styles.sessionTitle}>{activeSession.title}</Text><Text style={styles.sessionCodeLabel}>Speaker - {activeSession.info.speaker_name || "Organizer"} · {activeSession.info.scheduled_start ? new Date(activeSession.info.scheduled_start).toLocaleString() : "Scheduled"}</Text></View><View style={styles.upcomingPill}><Text style={styles.upcomingPillText}>UPCOMING</Text></View></View> : <View style={styles.emptyState}><Feather name="calendar" size={18} color="#70697D" /><Text style={styles.emptySession}>No upcoming sessions scheduled</Text></View>}
+        {activeStatus === "upcoming" && activeSession?.info ? <View style={styles.sessionListRow}><View style={styles.sessionRowIcon}><Feather name="calendar" size={16} color="#A78BFA" /></View><View style={{ flex: 1 }}><Text style={styles.sessionTitle}>{activeSession.title}</Text><Text style={styles.sessionCodeLabel}>Speaker - {activeSession.info.speaker_name || "Organizer"} · {activeSession.info.scheduled_start ? new Date(activeSession.info.scheduled_start).toLocaleString() : "Scheduled"}</Text></View><View style={styles.upcomingPill}><Text style={styles.upcomingPillText}>UPCOMING</Text></View></View> : null}
+        {savedUpcomingSessions.map((record) => <View key={record.id} style={styles.sessionListRow}><View style={styles.sessionRowIcon}><Feather name="calendar" size={16} color="#A78BFA" /></View><View style={{ flex: 1 }}><Text numberOfLines={1} style={styles.sessionTitle}>{record.title}</Text><Text style={styles.sessionCodeLabel}>Speaker - {record.participants?.[0]?.display_name || "Organizer"} · {record.scheduled_start ? new Date(record.scheduled_start).toLocaleString() : "Scheduled"}</Text></View><View style={styles.upcomingPill}><Text style={styles.upcomingPillText}>UPCOMING</Text></View></View>)}
+        {!savedUpcomingSessions.length && activeStatus !== "upcoming" ? <View style={styles.emptyState}><Feather name="calendar" size={18} color="#70697D" /><Text style={styles.emptySession}>No upcoming sessions scheduled</Text></View> : null}
         <View style={[styles.sectionHeading, { marginTop: 24 }]}><View style={[styles.sectionDot, { backgroundColor: "#F3C969" }]} /><Text style={styles.sectionTitle}>PAST SESSIONS</Text><Text style={styles.sectionCount}>{completedSessions.length}</Text></View>
         {completedSessions.length ? completedSessions.map((record) => <View key={record.id} style={styles.sessionListRow}><View style={styles.sessionRowIcon}><Feather name="file-text" size={16} color="#A78BFA" /></View><View style={{ flex: 1 }}><Text numberOfLines={1} style={styles.sessionTitle}>{record.title}</Text><Text style={styles.sessionCodeLabel}>{record.language} · {record.status} · {new Date(record.created_at).toLocaleDateString()}</Text></View><Pressable onPress={() => void downloadTranscript(record)} disabled={!record.segments.length} style={[styles.downloadButton, !record.segments.length && { opacity: 0.45 }]}><Feather name="download" size={15} color="#CDBDFF" /><Text style={styles.downloadText}>TXT</Text></Pressable></View>) : <View style={styles.emptyState}><Feather name="archive" size={18} color="#70697D" /><Text style={styles.emptySession}>Completed sessions will appear here</Text></View>}
       </View>

@@ -409,6 +409,8 @@ function TranscriptPanel({
   errorMessage?: string | null;
   styles: AppStyles;
 }) {
+  const transcriptScrollRef = useRef<ScrollView>(null);
+  const userAtTranscriptTop = useRef(true);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editText, setEditText] = useState("");
   const isProcessing = !active && (status === "queued" || status === "processing" || Boolean(processingStage));
@@ -480,7 +482,16 @@ function TranscriptPanel({
         </View>
       ) : null}
 
-      <ScrollView style={styles.transcriptScroll} contentContainerStyle={styles.transcriptContent}>
+      <ScrollView
+        ref={transcriptScrollRef}
+        style={styles.transcriptScroll}
+        contentContainerStyle={styles.transcriptContent}
+        scrollEventThrottle={100}
+        onScroll={(event) => { userAtTranscriptTop.current = event.nativeEvent.contentOffset.y < 64; }}
+        onContentSizeChange={() => {
+          if (active && userAtTranscriptTop.current) transcriptScrollRef.current?.scrollTo({ y: 0, animated: false });
+        }}
+      >
         {exportRecord?.status === "completed" && transcriptText(exportRecord) ? (
           <SummaryPanel record={exportRecord} summarizing={Boolean(summarizing)} copied={Boolean(summaryCopied)} exportBusy={exportBusy === "summary"} onGenerate={onGenerateSummary} onCopy={onCopySummary} onSave={onSaveSummary} styles={styles} />
         ) : null}
@@ -1511,14 +1522,21 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
             await connectToMeeting(connection, title);
           }}
           onStartCreatedSession={async (connection, title) => {
-            await prepareMeetingMicrophone();
-            await startMeetingApi(connection.room_code, connection.host_secret ?? "");
             setMeetingName(connection.display_name);
             setMeetingTitle(title);
             setLanguage(connection.language ?? "Mixed");
-            setSessionType("Meeting");
+            // Creating a QR room must not implicitly start microphone capture.
+            // Stage the organizer in the ready screen so Live/Upload can be chosen.
+            setSessionType("Live");
             setTab("new");
-            await connectToMeeting(connection, title);
+            setMeetingConnection(connection);
+            setMeetingParticipants([]);
+            setSegments([]);
+            setInterimText("");
+            setInterimLanguage(null);
+            setStatus("ready");
+            setActive(false);
+            setBusy(false);
           }}
         />
       ) : tab === "history" ? (

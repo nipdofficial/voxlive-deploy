@@ -1,5 +1,6 @@
 import hmac
 import io
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import Response
@@ -120,6 +121,11 @@ async def start_meeting(code: str, body: MeetingStart) -> SessionInfo:
         raise HTTPException(status_code=404, detail="Session not found or already ended")
     if not hmac.compare_digest(session.host_secret, body.host_secret):
         raise HTTPException(status_code=403, detail="Only the session host can start it")
+    if session.scheduled_start and session.scheduled_start > datetime.now(timezone.utc):
+        raise HTTPException(
+            status_code=409,
+            detail=f"This session is scheduled to start at {session.scheduled_start.isoformat()}",
+        )
     await session.start()
     if session.task:
         session.task.add_done_callback(

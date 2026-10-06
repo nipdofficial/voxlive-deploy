@@ -60,6 +60,8 @@ export interface TranscriptRecord {
   summary?: TranscriptSummary | null;
   summary_source_hash?: string | null;
   error?: string | null;
+  scheduled_start?: string | null;
+  scheduled_end?: string | null;
   created_at: string;
 }
 

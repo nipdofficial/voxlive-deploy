@@ -48,6 +48,8 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
   const [segments, setSegments] = useState<Segment[]>([]);
   const [participants, setParticipants] = useState<MeetingParticipantView[]>([]);
   const participantsRef = useRef<MeetingParticipantView[]>([]);
+  const transcriptScrollRef = useRef<ScrollView | null>(null);
+  const userAtTranscriptTop = useRef(true);
   const [client, setClient] = useState<MeetingClient | null>(null);
   const [status, setStatus] = useState("loading");
   const [error, setError] = useState<string | null>(null);
@@ -67,7 +69,10 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
   useEffect(() => {
     if (Platform.OS === "web" && typeof document !== "undefined") {
       document.documentElement.style.backgroundColor = "#100E14";
+      document.documentElement.style.minHeight = "100%";
       document.body.style.backgroundColor = "#100E14";
+      document.body.style.minHeight = "100dvh";
+      document.body.style.margin = "0";
     }
   }, []);
 
@@ -262,7 +267,19 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
                 <Text style={styles.cardTitle}>Live transcript</Text>
                 <Text style={[styles.live, status === "ended" && { color: "#F3C969" }]}>{status === "ended" ? "● ENDED" : "● LIVE"}</Text>
               </View>
-              <ScrollView style={styles.transcriptList} contentContainerStyle={styles.transcriptListContent} nestedScrollEnabled>
+              <ScrollView
+                ref={transcriptScrollRef}
+                style={styles.transcriptList}
+                contentContainerStyle={styles.transcriptListContent}
+                nestedScrollEnabled
+                scrollEventThrottle={100}
+                onScroll={(event) => { userAtTranscriptTop.current = event.nativeEvent.contentOffset.y < 64; }}
+                onContentSizeChange={() => {
+                  if (status === "connected" && userAtTranscriptTop.current) {
+                    transcriptScrollRef.current?.scrollTo({ y: 0, animated: false });
+                  }
+                }}
+              >
                 {segments.length ? segments.map((segment, index) => (
                   <View key={`${segment.start}-${index}`} style={styles.line}>
                     <Text style={styles.time}>{formatTime(segment.start)}</Text>
@@ -323,7 +340,7 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
 }
 
 const createStyles = () => StyleSheet.create({
-  page: { flex: 1, backgroundColor: "#100E14", minHeight: Platform.OS === "web" ? ("100vh" as any) : "100%" },
+  page: { flex: 1, backgroundColor: "#100E14", minHeight: Platform.OS === "web" ? ("100dvh" as any) : "100%" },
   glow: { position: "absolute", width: 500, height: 500, borderRadius: 250, top: -260, alignSelf: "center", backgroundColor: "rgba(100,70,170,0.10)" },
   content: { width: "100%", maxWidth: 820, alignSelf: "center", padding: 24, gap: 16, flexGrow: 1 },
   brand: { flexDirection: "row", alignItems: "center", gap: 10 },

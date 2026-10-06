@@ -25,6 +25,27 @@ def test_room_code_is_short_unambiguous_and_random() -> None:
     assert all(re.fullmatch(r"[A-HJ-NP-Z2-9]{8}", code) for code in codes)
 
 
+def test_scheduled_meeting_cannot_be_started_early(monkeypatch) -> None:
+    from datetime import datetime, timedelta, timezone
+
+    from app.api.routes import meetings
+    from app.models.schemas import MeetingStart
+
+    session = SimpleNamespace(
+        ending=False,
+        host_secret="secret",
+        scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
+        start=lambda: pytest.fail("future scheduled meeting must not start"),
+    )
+    monkeypatch.setattr(meetings.meeting_registry, "get", lambda _code: session)
+
+    with pytest.raises(HTTPException) as caught:
+        asyncio.run(meetings.start_meeting("ABCDEFGH", MeetingStart(host_secret="secret")))
+
+    assert caught.value.status_code == 409
+    assert "scheduled to start" in caught.value.detail
+
+
 def test_display_name_is_normalized() -> None:
     assert normalize_display_name("  Anu   Kumar  ") == "Anu Kumar"
 
