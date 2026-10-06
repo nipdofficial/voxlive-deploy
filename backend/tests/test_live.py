@@ -181,6 +181,12 @@ def test_live_noise_gate_silences_quiet_noise_and_preserves_speech() -> None:
     assert live._gate_live_pcm(speech, 120.0) == speech
 
 
+def test_live_provider_output_requires_recent_voice_activity() -> None:
+    assert not live._has_recent_voice_activity(None, 10.0, 4.0)
+    assert live._has_recent_voice_activity(8.0, 10.0, 4.0)
+    assert not live._has_recent_voice_activity(5.0, 10.0, 4.0)
+
+
 def test_unicode_script_overrides_conflicting_live_language_code() -> None:
     assert live._live_detected_language("si-LK", "வணக்கம்") == SpokenLanguage.tamil
     assert live._live_detected_language("ta-IN", "ආයුබෝවන්") == SpokenLanguage.sinhala

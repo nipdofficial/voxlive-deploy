@@ -425,7 +425,10 @@ class MeetingSession:
             if queued is None:
                 return
             chunk, offset, commit_after = queued
-            if pcm_rms(chunk) < settings.live_silence_rms_threshold:
+            if pcm_rms(chunk) < max(
+                settings.live_silence_rms_threshold,
+                settings.live_voice_rms_threshold,
+            ):
                 continue
             try:
                 raw = await gemini.transcribe_file(
@@ -756,7 +759,10 @@ class MeetingSession:
             await asyncio.to_thread(path.write_bytes, audio)
         self.record.participant_audio[state.identity] = filename
         try:
-            if pcm_rms(pcm_for_rms) < settings.live_silence_rms_threshold:
+            if pcm_rms(pcm_for_rms) < max(
+                settings.live_silence_rms_threshold,
+                settings.live_voice_rms_threshold,
+            ):
                 final: list[TranscriptSegment] = []
             else:
                 final = await GeminiService().transcribe_file(

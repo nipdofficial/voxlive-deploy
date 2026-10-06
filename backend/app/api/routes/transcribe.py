@@ -128,7 +128,11 @@ async def _process(record: TranscriptRecord, path: Path, mime_type: str) -> None
             known_duration = _wav_duration(audio)
         gemini = GeminiService()
         energy = wav_rms(audio) if path.suffix.lower() == ".wav" else None
-        if energy is not None and energy < get_settings().live_silence_rms_threshold:
+        settings = get_settings()
+        if energy is not None and energy < max(
+            settings.live_silence_rms_threshold,
+            settings.live_voice_rms_threshold,
+        ):
             transcript = []
         else:
             diarization_task = (

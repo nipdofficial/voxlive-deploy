@@ -1,6 +1,7 @@
 import asyncio
 import io
 import logging
+import time
 import wave
 from contextlib import suppress
 from pathlib import Path
@@ -90,6 +91,13 @@ def _live_text_matches_mode(text: str, language: Language) -> bool:
 def _gate_live_pcm(pcm: bytes, threshold: float) -> bytes:
     """Replace quiet mic noise with silence while preserving audio timing."""
     return gate_pcm_noise(pcm, threshold)
+
+
+def _has_recent_voice_activity(
+    last_voice_at: float | None, now: float, window: float
+) -> bool:
+    """Do not trust live-model text unless the mic recently carried voice-level audio."""
+    return last_voice_at is not None and 0 <= now - last_voice_at <= window
 
 
 def _live_detected_language(
@@ -275,7 +283,10 @@ async def _finalize_live(record: TranscriptRecord, path: Path) -> None:
                 audio = await asyncio.to_thread(path.read_bytes)
                 inline_limit = settings.max_upload_mb * 1024 * 1024
                 energy = wav_rms(audio)
-                silence_threshold = getattr(settings, "live_silence_rms_threshold", 0.0)
+                silence_threshold = max(
+                    getattr(settings, "live_silence_rms_threshold", 0.0),
+                    getattr(settings, "live_voice_rms_threshold", 180.0),
+                )
                 if energy is not None and energy < silence_threshold:
                     record.segments = []
                 elif len(audio) <= inline_limit:
@@ -432,6 +443,7 @@ async def live_transcription(websocket: WebSocket) -> None:
         )
         last_final_end = 0.0
         queued_preview_offset = 0.0
+        last_voice_input_at: float | None = None
 
         async def translate_live_segment(segment: TranscriptSegment) -> None:
             """Add Tamil to one committed line without blocking live captions."""
@@ -524,7 +536,10 @@ async def live_transcription(websocket: WebSocket) -> None:
                         fallback_offset = next_offset + len(next_chunk) / (start.sample_rate * 2)
 
         async def process_fallback_chunk(chunk: bytes, offset: float) -> None:
-            if _pcm_rms(chunk) < settings.live_silence_rms_threshold:
+            if _pcm_rms(chunk) < max(
+                settings.live_silence_rms_threshold,
+                settings.live_voice_rms_threshold,
+            ):
                 return
             segments = await _transcribe_live_chunk(
                 gemini, chunk, start.sample_rate, record, offset
@@ -579,6 +594,12 @@ async def live_transcription(websocket: WebSocket) -> None:
                             continue
                         interim = content.interim_input_transcription
                         if interim and interim.text:
+                            if not _has_recent_voice_activity(
+                                last_voice_input_at,
+                                time.monotonic(),
+                                settings.live_voice_activity_window_seconds,
+                            ):
+                                continue
                             if not _live_text_matches_mode(interim.text, start.language):
                                 continue
                             await websocket.send_json(
@@ -594,6 +615,16 @@ async def live_transcription(websocket: WebSocket) -> None:
                             )
                         final = content.input_transcription
                         if final is None:
+                            continue
+                        if not _has_recent_voice_activity(
+                            last_voice_input_at,
+                            time.monotonic(),
+                            settings.live_voice_activity_window_seconds,
+                        ):
+                            logger.info(
+                                "Discarded live transcription without recent voice-level audio record_id=%s",
+                                record.id,
+                            )
                             continue
                         segment = _live_segment(final, last_final_end, start.language)
                         if segment is None:
@@ -635,9 +666,11 @@ async def live_transcription(websocket: WebSocket) -> None:
                 pcm_size += len(chunk)
                 pending.extend(chunk)
                 while len(pending) >= chunk_bytes:
+                    captured_chunk = bytes(pending[:chunk_bytes])
+                    if _pcm_rms(captured_chunk) >= settings.live_voice_rms_threshold:
+                        last_voice_input_at = time.monotonic()
                     live_chunk = _gate_live_pcm(
-                        bytes(pending[:chunk_bytes]),
-                        settings.live_voice_rms_threshold,
+                        captured_chunk, settings.live_voice_rms_threshold
                     )
                     raw_file.write(live_chunk)
                     if queue.full():
