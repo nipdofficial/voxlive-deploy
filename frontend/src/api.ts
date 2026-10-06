@@ -133,10 +133,10 @@ export async function submitAudio(
   return response.json();
 }
 
-async function meetingRequest(path: string, body: unknown): Promise<MeetingConnection> {
+async function meetingRequest(path: string, body: unknown, token?: string): Promise<MeetingConnection> {
   const response = await fetch(`${API_URL}${path}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     body: JSON.stringify(body),
   });
   if (!response.ok) throw new Error((await response.text()) || "Meeting request failed");
@@ -151,6 +151,7 @@ export function createMeeting(
   maxParticipants: number = 0,
   scheduledStart?: string,
   scheduledEnd?: string,
+  token?: string,
 ): Promise<MeetingConnection> {
   return meetingRequest("/meetings", {
     display_name: displayName,
@@ -160,7 +161,27 @@ export function createMeeting(
     max_participants: maxParticipants,
     scheduled_start: scheduledStart || null,
     scheduled_end: scheduledEnd || null,
+  }, token);
+}
+
+export async function getManagedMeetings(token: string): Promise<SessionInfo[]> {
+  const response = await fetch(`${API_URL}/meetings/mine`, {
+    headers: { Authorization: `Bearer ${token}` },
   });
+  if (!response.ok) throw new Error("Could not load your sessions");
+  return response.json();
+}
+
+export async function getManagedMeetingHistory(token: string): Promise<TranscriptRecord[]> {
+  const response = await fetch(`${API_URL}/meetings/mine/history`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) throw new Error("Could not load your session history");
+  return response.json();
+}
+
+export function resumeOrganizerMeeting(roomCode: string, token: string): Promise<MeetingConnection> {
+  return meetingRequest(`/meetings/${encodeURIComponent(roomCode)}/organizer`, {}, token);
 }
 
 export function joinMeeting(

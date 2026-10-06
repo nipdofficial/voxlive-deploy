@@ -14,6 +14,7 @@ from app.core.config import get_settings
 from app.core.observability import configure_error_monitoring, configure_logging, metrics
 from app.models.schemas import JobStatus, ProcessingStage, SessionType
 from app.services.diarization_service import warm_up_diarization
+from app.services.meeting_service import meeting_registry
 
 logger = logging.getLogger(__name__)
 configure_logging()
@@ -107,6 +108,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     preload_task = asyncio.create_task(_preload_diarization(app))
     await _recover_interrupted_live_jobs()
     await _recover_file_jobs()
+    await meeting_registry.load_pending()
     yield
     if not preload_task.done():
         preload_task.cancel()

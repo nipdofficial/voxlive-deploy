@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from app.api.routes.history import save_record
+from app.api.routes.history import get_record, save_record
 from app.core.config import get_settings
 from app.models.schemas import (
     JobStatus,
@@ -138,6 +138,7 @@ class MeetingSession:
         max_participants: int = 0,
         scheduled_start: datetime | None = None,
         scheduled_end: datetime | None = None,
+        organizer_user_id: str | None = None,
     ) -> None:
         self.code = code
         self.room_name = f"helascribe-{code.lower()}"
@@ -148,6 +149,7 @@ class MeetingSession:
         self.max_participants = max_participants
         self.scheduled_start = scheduled_start
         self.scheduled_end = scheduled_end
+        self.organizer_user_id = organizer_user_id
         self.started_at = time.monotonic()
         self.created_at = __import__("datetime").datetime.now(__import__("datetime").timezone.utc)
         self.started = False
@@ -810,6 +812,62 @@ class MeetingRegistry:
         self.sessions: dict[str, MeetingSession] = {}
         self.lock = asyncio.Lock()
 
+    @staticmethod
+    def _pending_path() -> Path:
+        return get_settings().data_dir / "pending_meetings.json"
+
+    @staticmethod
+    def _write_pending(payload: str) -> None:
+        path = MeetingRegistry._pending_path()
+        temporary = path.with_suffix(".json.tmp")
+        temporary.write_text(payload, encoding="utf-8")
+        temporary.replace(path)
+
+    async def persist_pending(self) -> None:
+        """Keep future rooms and their private host secrets outside public history."""
+        async with self.lock:
+            pending = [
+                {
+                    "code": session.code,
+                    "host_secret": session.host_secret,
+                    "record_id": session.record.id,
+                    "title": session.title,
+                    "max_participants": session.max_participants,
+                    "created_at": session.created_at.isoformat(),
+                }
+                for session in self.sessions.values()
+                if not session.started and not session.ending and session.organizer_user_id
+            ]
+            await asyncio.to_thread(self._write_pending, json.dumps(pending))
+
+    async def load_pending(self) -> None:
+        """Restore scheduled rooms when the service restarts on a retained data directory."""
+        path = self._pending_path()
+        if not path.is_file():
+            return
+        try:
+            entries = json.loads(await asyncio.to_thread(path.read_text, encoding="utf-8"))
+        except (OSError, ValueError):
+            logger.exception("Could not load pending meetings")
+            return
+        async with self.lock:
+            for entry in entries:
+                try:
+                    record = await get_record(entry["record_id"])
+                    if not record or record.status != JobStatus.queued or not record.organizer_user_id:
+                        continue
+                    session = MeetingSession(
+                        entry["code"], entry["host_secret"], record, record.language,
+                        title=entry["title"], max_participants=entry["max_participants"],
+                        scheduled_start=record.scheduled_start,
+                        scheduled_end=record.scheduled_end,
+                        organizer_user_id=record.organizer_user_id,
+                    )
+                    session.created_at = datetime.fromisoformat(entry["created_at"])
+                    self.sessions[session.code] = session
+                except (KeyError, TypeError, ValueError):
+                    logger.warning("Skipping an invalid saved meeting", exc_info=True)
+
     async def create(
         self,
         record: TranscriptRecord,
@@ -818,6 +876,7 @@ class MeetingRegistry:
         max_participants: int = 0,
         scheduled_start: datetime | None = None,
         scheduled_end: datetime | None = None,
+        organizer_user_id: str | None = None,
     ) -> MeetingSession:
         async with self.lock:
             code = generate_room_code()
@@ -832,6 +891,7 @@ class MeetingRegistry:
                 max_participants=max_participants,
                 scheduled_start=scheduled_start,
                 scheduled_end=scheduled_end,
+                organizer_user_id=organizer_user_id,
             )
             self.sessions[code] = session
         return session

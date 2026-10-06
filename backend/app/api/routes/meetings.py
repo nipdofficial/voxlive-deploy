@@ -2,11 +2,13 @@ import hmac
 import io
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import Response
 
-from app.api.routes.history import save_record
+from app.api.routes.history import list_history, save_record
+from app.api.routes.auth import current_session
 from app.core.config import get_settings
+from app.models.auth import SessionRecord
 from app.models.schemas import (
     JobStatus,
     MeetingConnection,
@@ -73,7 +75,10 @@ def _session_info(session) -> SessionInfo:
 
 
 @router.post("", response_model=MeetingConnection, status_code=status.HTTP_201_CREATED)
-async def create_meeting(body: MeetingCreate) -> MeetingConnection:
+async def create_meeting(
+    body: MeetingCreate,
+    organizer: SessionRecord = Depends(current_session),
+) -> MeetingConnection:
     try:
         require_livekit_settings()
         display_name = normalize_display_name(body.display_name)
@@ -87,6 +92,7 @@ async def create_meeting(body: MeetingCreate) -> MeetingConnection:
         session_type=SessionType.meeting,
         diarization=body.shared_mic,
         status=JobStatus.queued,
+        organizer_user_id=organizer.user_id,
         scheduled_start=body.scheduled_start,
         scheduled_end=body.scheduled_end,
     )
@@ -98,11 +104,52 @@ async def create_meeting(body: MeetingCreate) -> MeetingConnection:
         max_participants=body.max_participants,
         scheduled_start=body.scheduled_start,
         scheduled_end=body.scheduled_end,
+        organizer_user_id=organizer.user_id,
     )
     identity = participant_identity()
     participant = session.add_participant(identity, display_name, body.shared_mic)
     await save_record(record)
+    await meeting_registry.persist_pending()
     token = create_join_token(session, identity, display_name, body.shared_mic, is_host=True)
+    return _connection(session, participant, token, is_host=True)
+
+
+@router.get("/mine", response_model=list[SessionInfo])
+async def list_managed_meetings(
+    organizer: SessionRecord = Depends(current_session),
+) -> list[SessionInfo]:
+    sessions = (
+        session for session in meeting_registry.sessions.values()
+        if session.organizer_user_id == organizer.user_id and not session.ending
+    )
+    return sorted((_session_info(session) for session in sessions), key=lambda item: item.created_at, reverse=True)
+
+
+@router.get("/mine/history", response_model=list[TranscriptRecord])
+async def list_managed_history(
+    organizer: SessionRecord = Depends(current_session),
+) -> list[TranscriptRecord]:
+    return [record for record in await list_history() if record.organizer_user_id == organizer.user_id]
+
+
+@router.post("/{code}/organizer", response_model=MeetingConnection)
+async def resume_organizer_meeting(
+    code: str,
+    organizer: SessionRecord = Depends(current_session),
+) -> MeetingConnection:
+    session = meeting_registry.get(code)
+    if not session or session.ending:
+        raise HTTPException(status_code=404, detail="Session not found or already ended")
+    if session.organizer_user_id != organizer.user_id:
+        raise HTTPException(status_code=403, detail="Only the session organizer can open it")
+    participant = session.record.participants[0]
+    token = create_join_token(
+        session,
+        participant.identity,
+        participant.display_name,
+        participant.shared_mic,
+        is_host=True,
+    )
     return _connection(session, participant, token, is_host=True)
 
 
@@ -127,6 +174,7 @@ async def start_meeting(code: str, body: MeetingStart) -> SessionInfo:
             detail=f"This session is scheduled to start at {session.scheduled_start.isoformat()}",
         )
     await session.start()
+    await meeting_registry.persist_pending()
     if session.task:
         session.task.add_done_callback(
             lambda task, room_code=code: meeting_registry.sessions.pop(room_code, None)
@@ -244,6 +292,7 @@ async def end_meeting(code: str, body: MeetingEnd) -> dict[str, str]:
     if not hmac.compare_digest(session.host_secret, body.host_secret):
         raise HTTPException(status_code=403, detail="Only the session host can end it")
     await session.end()
+    await meeting_registry.persist_pending()
     return {"id": session.record.id, "status": "processing"}
 
 

@@ -46,6 +46,71 @@ def test_scheduled_meeting_cannot_be_started_early(monkeypatch) -> None:
     assert "scheduled to start" in caught.value.detail
 
 
+def test_organizer_can_reopen_own_upcoming_session(monkeypatch) -> None:
+    from datetime import datetime, timedelta, timezone
+
+    from app.api.routes import meetings
+    from app.models.schemas import Language, SessionType, TranscriptRecord
+    from app.services.meeting_service import MeetingSession
+
+    record = TranscriptRecord(title="Future meeting", language=Language.sinhala, session_type=SessionType.meeting)
+    session = MeetingSession(
+        "ABCDEFGH", "private-secret", record, Language.sinhala,
+        title="Future meeting", scheduled_start=datetime.now(timezone.utc) + timedelta(days=1),
+        organizer_user_id="owner-1",
+    )
+    session.add_participant("host-identity", "Speaker", False)
+    monkeypatch.setattr(meetings.meeting_registry, "sessions", {session.code: session})
+    monkeypatch.setattr(meetings, "create_join_token", lambda *_args, **_kwargs: "fresh-token")
+    monkeypatch.setattr(meetings, "get_settings", lambda: SimpleNamespace(livekit_url="wss://livekit"))
+    owner = SimpleNamespace(user_id="owner-1")
+
+    listed = asyncio.run(meetings.list_managed_meetings(owner))
+    reopened = asyncio.run(meetings.resume_organizer_meeting(session.code, owner))
+
+    assert [item.room_code for item in listed] == [session.code]
+    assert listed[0].status == "upcoming"
+    assert reopened.token == "fresh-token"
+    assert reopened.participant_identity == "host-identity"
+    assert reopened.host_secret == "private-secret"
+    assert asyncio.run(meetings.list_managed_meetings(SimpleNamespace(user_id="other"))) == []
+    with pytest.raises(HTTPException) as caught:
+        asyncio.run(meetings.resume_organizer_meeting(session.code, SimpleNamespace(user_id="other")))
+    assert caught.value.status_code == 403
+
+
+def test_pending_meeting_survives_service_restart(monkeypatch, tmp_path) -> None:
+    from datetime import datetime, timedelta, timezone
+
+    from app.models.schemas import Language, SessionType, TranscriptRecord
+    from app.services import meeting_service
+
+    monkeypatch.setattr(meeting_service, "get_settings", lambda: SimpleNamespace(data_dir=tmp_path))
+    record = TranscriptRecord(
+        title="Tomorrow", language=Language.sinhala, session_type=SessionType.meeting,
+        organizer_user_id="owner-1", scheduled_start=datetime.now(timezone.utc) + timedelta(days=1),
+    )
+    session = meeting_service.MeetingSession(
+        "ABCDEFGH", "secret", record, Language.sinhala,
+        scheduled_start=record.scheduled_start, organizer_user_id="owner-1",
+    )
+    session.add_participant("host", "Speaker", False)
+    first = meeting_service.MeetingRegistry()
+    first.sessions[session.code] = session
+    asyncio.run(first.persist_pending())
+
+    async def saved_record(record_id):
+        return record if record_id == record.id else None
+
+    monkeypatch.setattr(meeting_service, "get_record", saved_record)
+    restored = meeting_service.MeetingRegistry()
+    asyncio.run(restored.load_pending())
+
+    assert restored.sessions[session.code].host_secret == "secret"
+    assert restored.sessions[session.code].organizer_user_id == "owner-1"
+    assert restored.sessions[session.code].record.participants[0].display_name == "Speaker"
+
+
 def test_display_name_is_normalized() -> None:
     assert normalize_display_name("  Anu   Kumar  ") == "Anu Kumar"
 

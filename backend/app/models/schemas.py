@@ -113,6 +113,7 @@ class TranscriptRecord(BaseModel):
     audio_filename: str | None = None
     participant_audio: dict[str, str] = Field(default_factory=dict)
     participants: list[MeetingParticipant] = Field(default_factory=list)
+    organizer_user_id: str | None = None
     scheduled_start: datetime | None = None
     scheduled_end: datetime | None = None
     feedback: list[MeetingFeedback] = Field(default_factory=list)

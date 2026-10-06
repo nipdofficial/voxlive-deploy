@@ -122,5 +122,5 @@ export default function Root() {
     );
   }
 
-  return <App onSignOut={handleSignOut} />;
+  return <App onSignOut={handleSignOut} authToken={session.token} />;
 }

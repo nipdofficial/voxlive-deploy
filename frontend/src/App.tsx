@@ -37,7 +37,7 @@ import {
   useFonts,
 } from "@expo-google-fonts/dm-sans";
 
-import { API_URL, cancelTranscription, createMeeting, deleteTranscript, endMeeting, generateTranscriptSummary, getHistory, getTranscript, joinMeeting, renameTranscriptSpeaker, retryTranscription, startMeeting as startMeetingApi, submitAudio, translateTranscript, updateMeetingLanguage, updateTranscript, WS_URL } from "./api";
+import { API_URL, cancelTranscription, createMeeting, deleteTranscript, endMeeting, generateTranscriptSummary, getHistory, getSessionInfo, getTranscript, joinMeeting, renameTranscriptSpeaker, retryTranscription, startMeeting as startMeetingApi, submitAudio, translateTranscript, updateMeetingLanguage, updateTranscript, WS_URL } from "./api";
 import type { Language, MeetingConnection, ProcessingStage, Segment, SessionType, TranscriptRecord, TranscriptSummary } from "./types";
 import type { MeetingClient, MeetingParticipantView } from "./livekitMeeting";
 import { requestWebMicrophone, startWebAudioStream, type WebAudioStream } from "./webAudioStream";
@@ -630,7 +630,7 @@ function MeetingRoomScreen({
   );
 }
 
-export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
+export default function App({ onSignOut, authToken }: { onSignOut?: () => void; authToken?: string } = {}) {
   useFonts({
     DMSans_400Regular,
     DMSans_500Medium,
@@ -1294,7 +1294,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
     setDuration(0);
       const connection = join
       ? await joinMeeting(meetingCode, displayName, diarization)
-      : await createMeeting(displayName, language, diarization);
+      : await createMeeting(displayName, language, diarization, undefined, undefined, undefined, undefined, authToken);
     try {
       await connectToMeeting(connection, join ? undefined : "Online meeting");
     } catch (error) {
@@ -1356,6 +1356,10 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
   const startCreatedMeeting = async () => {
     const connection = meetingConnection;
     if (!connection?.is_host) return;
+    const info = await getSessionInfo(connection.room_code);
+    if (info.status === "upcoming") {
+      throw new Error(`This meeting is scheduled for ${new Date(info.scheduled_start || "").toLocaleString()}. You can prepare it now and start when the time arrives.`);
+    }
     setSessionType("Meeting");
     setBusy(true);
     setStatus("connecting");
@@ -1506,6 +1510,7 @@ export default function App({ onSignOut }: { onSignOut?: () => void } = {}) {
       {tab === "sessions" ? (
         <SessionManagementScreen
           isDark={isDark}
+          authToken={authToken ?? ""}
           onOpenCreatedSession={async (connection, title) => {
             await prepareMeetingMicrophone();
             setMeetingName(connection.display_name);
