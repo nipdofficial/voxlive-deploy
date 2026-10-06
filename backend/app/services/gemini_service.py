@@ -77,6 +77,26 @@ REQUESTED_SPOKEN_LANGUAGE = {
 RETRYABLE_API_CODES = {429, 500, 502, 503, 504}
 
 
+def _uses_gemini_36_or_later(model: str) -> bool:
+    """Gemini 3.6+ ignores custom sampling settings and supports thinking levels."""
+    match = re.search(r"gemini-(\d+)\.(\d+)", model.lower())
+    if not match:
+        return False
+    major, minor = (int(part) for part in match.groups())
+    return major > 3 or (major == 3 and minor >= 6)
+
+
+def _generation_config(
+    model: str, *, legacy_temperature: float = 0.0, **options
+) -> types.GenerateContentConfig:
+    """Build model-compatible settings; keep current Gemini requests low-latency."""
+    if _uses_gemini_36_or_later(model):
+        options["thinking_config"] = types.ThinkingConfig(thinking_level="LOW")
+    else:
+        options["temperature"] = legacy_temperature
+    return types.GenerateContentConfig(**options)
+
+
 def _load_response_json(value: str) -> dict:
     """Parse model JSON while preserving literal malformed backslash sequences."""
     try:
@@ -220,8 +240,8 @@ class GeminiService:
                         )
                     ),
                 ],
-                config=types.GenerateContentConfig(
-                    temperature=0.0,
+                config=_generation_config(
+                    self.settings.gemini_text_model,
                     response_mime_type="application/json",
                     response_json_schema={
                         "type": "object",
@@ -334,10 +354,10 @@ class GeminiService:
                             types.Part.from_text(text=prompt),
                         ],
                         config=(
-                            types.GenerateContentConfig(temperature=0.0)
+                            _generation_config(selected_model)
                             if transcribe_model
-                            else types.GenerateContentConfig(
-                                temperature=0.0,
+                            else _generation_config(
+                                selected_model,
                                 audio_timestamp=True,
                                 response_mime_type="application/json",
                                 response_schema=GeminiTranscript,
@@ -515,8 +535,8 @@ class GeminiService:
             self.client.aio.models.generate_content(
                 model=self.settings.gemini_text_model,
                 contents=[types.Part.from_text(text=prompt)],
-                config=types.GenerateContentConfig(
-                    temperature=0.0,
+                config=_generation_config(
+                    self.settings.gemini_text_model,
                     response_mime_type="application/json",
                     response_json_schema=schema,
                 ),
@@ -586,8 +606,13 @@ class GeminiService:
                             self.settings.gemini_batch_model,
                         ),
                         contents=[types.Part.from_text(text=prompt)],
-                        config=types.GenerateContentConfig(
-                            temperature=0.1,
+                        config=_generation_config(
+                            getattr(
+                                self.settings,
+                                "gemini_text_model",
+                                self.settings.gemini_batch_model,
+                            ),
+                            legacy_temperature=0.1,
                             response_mime_type="application/json",
                             response_schema=SummaryContent,
                         ),

@@ -188,6 +188,19 @@ def test_live_provider_output_requires_recent_voice_activity() -> None:
     assert not live._has_recent_voice_activity(5.0, 10.0, 4.0)
 
 
+def test_gemini_36_plus_config_avoids_unsupported_sampling_parameters() -> None:
+    from app.services.gemini_service import _generation_config
+
+    current = _generation_config("gemini-3.8-flash", response_mime_type="application/json")
+    legacy = _generation_config("gemini-2.5-flash", legacy_temperature=0.1)
+
+    assert current.temperature is None
+    assert current.thinking_config is not None
+    assert current.thinking_config.thinking_level == "LOW"
+    assert legacy.temperature == 0.1
+    assert legacy.thinking_config is None
+
+
 def test_voice_activity_detector_rejects_silence_and_quiet_room_hum() -> None:
     from app.services.audio_service import contains_speech
 
