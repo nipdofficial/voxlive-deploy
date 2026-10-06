@@ -9,6 +9,7 @@ from app.api.routes import live
 from app.models.schemas import (
     JobStatus,
     Language,
+    SpokenLanguage,
     SessionType,
     TranscriptRecord,
     TranscriptSegment,
@@ -133,7 +134,7 @@ def test_live_chunk_requests_provisional_gemini_speakers(monkeypatch) -> None:
         live,
         "get_settings",
         lambda: SimpleNamespace(
-            gemini_live_model="live-model",
+            gemini_text_model="flash-model",
             gemini_live_timeout_seconds=12.0,
         ),
     )
@@ -156,7 +157,7 @@ def test_live_chunk_requests_provisional_gemini_speakers(monkeypatch) -> None:
 
     assert calls == [
         {
-            "model": "live-model",
+            "model": "flash-model",
             "timestamp_offset": 7.0,
             "include_speakers": True,
             "audio_duration_seconds": 1.0,
@@ -165,6 +166,26 @@ def test_live_chunk_requests_provisional_gemini_speakers(monkeypatch) -> None:
             "use_structured_mixed_model": True,
         }
     ]
+
+
+def test_live_language_hints_cover_only_supported_languages() -> None:
+    assert live._live_language_codes(Language.sinhala) == ["si-LK"]
+    assert live._live_language_codes(Language.mixed) == ["si-LK", "ta-IN", "en-US"]
+
+
+def test_unicode_script_overrides_conflicting_live_language_code() -> None:
+    assert live._live_detected_language("si-LK", "வணக்கம்") == SpokenLanguage.tamil
+    assert live._live_detected_language("ta-IN", "ආයුබෝවන්") == SpokenLanguage.sinhala
+
+
+def test_live_mono_language_rejects_transcription_in_wrong_script() -> None:
+    tamil_text = live.types.Transcription(text="வணக்கம்")
+    sinhala_text = live.types.Transcription(text="ආයුබෝවන්")
+
+    assert live._live_segment(tamil_text, 0.0, Language.sinhala) is None
+    accepted = live._live_segment(sinhala_text, 0.0, Language.sinhala)
+    assert accepted is not None
+    assert accepted.detected_language == SpokenLanguage.sinhala
 
 
 def test_default_live_model_is_supported_by_gemini_live_api() -> None:
@@ -189,7 +210,7 @@ def test_live_chunk_disables_gemini_speakers_when_toggle_is_off(monkeypatch) -> 
         live,
         "get_settings",
         lambda: SimpleNamespace(
-            gemini_live_model="live-model",
+            gemini_text_model="flash-model",
             gemini_live_timeout_seconds=12.0,
         ),
     )

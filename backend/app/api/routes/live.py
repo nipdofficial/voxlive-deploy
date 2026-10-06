@@ -12,6 +12,7 @@ from app.api.routes.history import save_record
 from app.core.config import get_settings
 from app.models.schemas import (
     JobStatus,
+    Language,
     LiveStart,
     ProcessingStage,
     SessionType,
@@ -21,7 +22,11 @@ from app.models.schemas import (
 )
 from app.services.audio_service import pcm_rms as _pcm_rms, wav_rms
 from app.services.diarization_service import diarize_file, merge_transcript_and_speakers
-from app.services.gemini_service import GeminiService, detect_script_language
+from app.services.gemini_service import (
+    GeminiService,
+    detect_script_language,
+    has_expected_script,
+)
 
 router = APIRouter(tags=["live"])
 logger = logging.getLogger(__name__)
@@ -51,9 +56,44 @@ def _live_language(value: str | None) -> SpokenLanguage | None:
     return SpokenLanguage.unknown
 
 
-def _live_detected_language(value: str | None, text: str) -> SpokenLanguage:
-    """Use Gemini's code first, then deterministic Unicode script detection."""
-    return _live_language(value) or detect_script_language(text)
+def _live_language_codes(language: Language) -> list[str]:
+    """Return BCP-47 hints, constrained to VoxLive's supported input modes."""
+    return {
+        Language.sinhala: ["si-LK"],
+        Language.tamil: ["ta-IN"],
+        Language.english: ["en-US"],
+        Language.mixed: ["si-LK", "ta-IN", "en-US"],
+    }[language]
+
+
+def _live_text_matches_mode(text: str, language: Language) -> bool:
+    expected = {
+        Language.sinhala: SpokenLanguage.sinhala,
+        Language.tamil: SpokenLanguage.tamil,
+        Language.english: SpokenLanguage.english,
+    }.get(language)
+    if expected is None:
+        return True
+    detected = detect_script_language(text)
+    if detected == SpokenLanguage.unknown:
+        return not any(char.isalpha() for char in text)
+    return detected == expected and has_expected_script(text, expected)
+
+
+def _live_detected_language(
+    value: str | None, text: str, requested: Language | None = None
+) -> SpokenLanguage:
+    """Prefer the returned script when the API's language tag disagrees."""
+    script_language = detect_script_language(text)
+    if script_language != SpokenLanguage.unknown:
+        return script_language
+    if requested and requested != Language.mixed:
+        return {
+            Language.sinhala: SpokenLanguage.sinhala,
+            Language.tamil: SpokenLanguage.tamil,
+            Language.english: SpokenLanguage.english,
+        }.get(requested, _live_language(value) or SpokenLanguage.unknown)
+    return _live_language(value) or SpokenLanguage.unknown
 
 
 def _seconds(value: str | None) -> float | None:
@@ -68,9 +108,12 @@ def _seconds(value: str | None) -> float | None:
 def _live_segment(
     transcription: types.Transcription,
     fallback_start: float,
+    requested_language: Language | None = None,
 ) -> TranscriptSegment | None:
     text = (transcription.text or "").strip()
     if not text:
+        return None
+    if requested_language and not _live_text_matches_mode(text, requested_language):
         return None
     words = transcription.words or []
     start = _seconds(words[0].start_offset) if words else None
@@ -83,7 +126,7 @@ def _live_segment(
         text=text,
         speaker=transcription.speaker_label,
         detected_language=_live_detected_language(
-            transcription.language_code, text
+            transcription.language_code, text, requested_language
         ),
     )
 
@@ -171,7 +214,9 @@ async def _transcribe_live_chunk(
 ) -> list[TranscriptSegment]:
     settings = get_settings()
     request = {
-        "model": settings.gemini_live_model,
+        # This fallback uses generateContent; the Live-only model cannot be
+        # called through that endpoint. Keep it on the 3.8 Flash audio path.
+        "model": settings.gemini_text_model,
         "timestamp_offset": offset,
         "include_speakers": record.diarization,
         "audio_duration_seconds": len(chunk) / (sample_rate * 2),
@@ -328,11 +373,7 @@ async def live_transcription(websocket: WebSocket) -> None:
         realtime_translation = (
             start.session_type == SessionType.live and start.realtime_translation
         )
-        live_language_codes = {
-            "Sinhala": ["si"],
-            "Tamil": ["ta"],
-            "English": ["en"],
-        }.get(start.language.value, [])
+        live_language_codes = _live_language_codes(start.language)
         try:
             live_connect = gemini.client.aio.live.connect(
                 model=settings.gemini_live_model,
@@ -511,19 +552,23 @@ async def live_transcription(websocket: WebSocket) -> None:
                             continue
                         interim = content.interim_input_transcription
                         if interim and interim.text:
+                            if not _live_text_matches_mode(interim.text, start.language):
+                                continue
                             await websocket.send_json(
                                 {
                                     "type": "interim",
                                     "text": interim.text,
                                     "detected_language": _live_detected_language(
-                                        interim.language_code, interim.text
+                                        interim.language_code,
+                                        interim.text,
+                                        start.language,
                                     ),
                                 }
                             )
                         final = content.input_transcription
                         if final is None:
                             continue
-                        segment = _live_segment(final, last_final_end)
+                        segment = _live_segment(final, last_final_end, start.language)
                         if segment is None:
                             continue
                         last_final_end = segment.end
