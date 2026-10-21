@@ -28,7 +28,9 @@ class Settings(BaseSettings):
     # Gemini Live API uses a different model family from generateContent.
     # The transcribe-preview model is not accepted by the Live API and closes
     # the websocket with INVALID_ARGUMENT/1007.
-    gemini_live_model: str = "gemini-3.8-live"
+    # Vertex currently exposes Gemini 3.5 Transcribe Live for persistent ASR
+    # sessions; Gemini 3.8 Flash is used for batch/text generation below.
+    gemini_live_model: str = "gemini-3.5-transcribe-live"
     # Use the generally available multimodal Flash model for live speech.
     # The transcribe preview endpoint was returning RESOURCE_EXHAUSTED for
     # meeting chunks and required a second model call for Tamil translation.
@@ -83,23 +85,28 @@ class Settings(BaseSettings):
         # Older Render environments may retain legacy IDs after a Blueprint
         # update. Use the 3.8 Live API model, never a generateContent/transcribe
         # model or a 2.5 Live model, for the persistent streaming connection.
-        if "transcribe" in self.gemini_live_model.lower() or self.gemini_live_model in {
-            "gemini-live-2.5-flash-native-audio",
-            "gemini-2.5-flash-native-audio-preview-12-2025",
-        }:
-            self.gemini_live_model = "gemini-3.8-live"
-        if self.gemini_batch_model in {
+        if self.gemini_live_model != "gemini-3.5-transcribe-live":
+            self.gemini_live_model = "gemini-3.5-transcribe-live"
+        if "transcribe" in self.gemini_batch_model.lower() or self.gemini_batch_model in {
             "gemini-2.5-flash",
             "gemini-3.5-flash",
-            "gemini-3.5-transcribe-preview",
         }:
             self.gemini_batch_model = "gemini-3.8-flash"
-        if self.gemini_text_model in {
+        if "transcribe" in self.gemini_text_model.lower() or self.gemini_text_model in {
             "gemini-2.5-flash",
             "gemini-3.5-flash",
-            "gemini-3.5-transcribe-preview",
         }:
             self.gemini_text_model = "gemini-3.8-flash"
+        # Treat template values as unset so health checks and optional
+        # integrations do not report fake LiveKit/pyannote readiness.
+        if self.livekit_url and "replace" in self.livekit_url.lower():
+            self.livekit_url = None
+        if self.livekit_api_key and "replace" in self.livekit_api_key.lower():
+            self.livekit_api_key = None
+        if self.livekit_api_secret and "replace" in self.livekit_api_secret.lower():
+            self.livekit_api_secret = None
+        if self.huggingface_token and "replace" in self.huggingface_token.lower():
+            self.huggingface_token = None
         return self
 
     @property

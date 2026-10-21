@@ -330,9 +330,24 @@ def test_live_mono_language_rejects_transcription_in_wrong_script() -> None:
 def test_default_live_model_is_supported_by_gemini_live_api() -> None:
     from app.core.config import Settings
 
-    assert Settings().gemini_live_model == "gemini-3.8-live"
-    assert Settings(gemini_live_model="gemini-3.5-transcribe-preview").gemini_live_model == "gemini-3.8-live"
-    assert Settings(gemini_live_model="gemini-live-2.5-flash-native-audio").gemini_live_model == "gemini-3.8-live"
+    assert Settings().gemini_live_model == "gemini-3.5-transcribe-live"
+    assert Settings(gemini_live_model="gemini-3.5-transcribe-preview").gemini_live_model == "gemini-3.5-transcribe-live"
+    assert Settings(gemini_live_model="gemini-live-2.5-flash-native-audio").gemini_live_model == "gemini-3.5-transcribe-live"
+
+
+def test_placeholder_optional_credentials_are_disabled() -> None:
+    from app.core.config import Settings
+
+    settings = Settings(
+        livekit_url="wss://replace-me.livekit.cloud",
+        livekit_api_key="replace_me",
+        livekit_api_secret="replace_me",
+        huggingface_token="hf_replace_me",
+    )
+    assert settings.livekit_url is None
+    assert settings.livekit_api_key is None
+    assert settings.livekit_api_secret is None
+    assert settings.huggingface_token is None
     assert Settings(gemini_batch_model="gemini-2.5-flash").gemini_batch_model == "gemini-3.8-flash"
     assert Settings(gemini_text_model="gemini-2.5-flash").gemini_text_model == "gemini-3.8-flash"
 

@@ -1,0 +1,15 @@
+services:
+  api:
+    build:
+      context: ./backend
+    container_name: voxlive-api
+    restart: unless-stopped
+    env_file:
+      - ./backend/.env
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - voxlive-data:/app/data
+
+volumes:
+  voxlive-data:

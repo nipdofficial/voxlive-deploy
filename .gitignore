@@ -3,6 +3,7 @@
 **/.env.*
 !**/.env.example
 **/*service-account*.json
+**/*service_account*.json
 **/google-services.json
 **/*.jks
 **/*.keystore
