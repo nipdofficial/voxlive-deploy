@@ -434,13 +434,12 @@ class MeetingSession:
                     pcm_wav_bytes(chunk),
                     "audio/wav",
                     self.language,
-                    # A single multimodal call can transcribe and translate a
-                    # short line. This avoids the two-call burst that was
-                    # exhausting the preview transcription model's capacity.
-                    model=settings.gemini_text_model,
+                    # Keep source transcription separate from translation so
+                    # Sinhala/Tamil text is never rewritten by the audio call.
+                    model=settings.gemini_batch_model,
                     audio_duration_seconds=len(chunk) / (SAMPLE_RATE * 2),
                     request_timeout_seconds=settings.gemini_live_timeout_seconds,
-                    translate_to=settings.target_language,
+                    translate_to=None,
                     verify_mixed_language=False,
                     use_structured_mixed_model=False,
                 )
@@ -465,12 +464,8 @@ class MeetingSession:
                     if (segment.start + segment.end) / 2 < commit_after:
                         continue
                     segment = self._canonical_segment(segment)
-                    if segment.translated_text:
-                        segment = segment.model_copy(update={"is_final": True})
                     published.append(segment)
                     state.preview_segments.append(segment)
-                    if segment.is_final:
-                        self.record.segments.append(segment)
                     logger.info(
                         "meeting_source_ready meeting_id=%s segment_id=%s sequence=%s language=%s",
                         self.record.id,
@@ -479,16 +474,11 @@ class MeetingSession:
                         segment.detected_language.value if segment.detected_language else "Unknown",
                     )
                 if published:
-                    complete = [item for item in published if item.is_final and item.translated_text]
-                    for item in complete:
-                        await self._broadcast_translation(item)
-                    pending_translation = [item for item in published if item not in complete]
-                    if pending_translation:
-                        translation_task = asyncio.create_task(
-                            self._translate_preview_segments(pending_translation)
-                        )
-                        self.translation_tasks.add(translation_task)
-                        translation_task.add_done_callback(self.translation_tasks.discard)
+                    translation_task = asyncio.create_task(
+                        self._translate_preview_segments(published)
+                    )
+                    self.translation_tasks.add(translation_task)
+                    translation_task.add_done_callback(self.translation_tasks.discard)
                 self.record.duration_seconds = max(
                     (track.duration for track in self.states.values()), default=0.0
                 )
@@ -770,8 +760,21 @@ class MeetingSession:
                     model=settings.gemini_batch_model,
                     include_speakers=state.shared_mic,
                     audio_duration_seconds=state.duration,
-                    translate_to=settings.target_language,
+                    translate_to=None,
                 )
+            if settings.auto_translate and final:
+                try:
+                    translations = await GeminiService().translate_segments(
+                        final, settings.target_language
+                    )
+                    final = [
+                        item.model_copy(update={"translated_text": translated})
+                        for item, translated in zip(final, translations, strict=True)
+                    ]
+                except Exception as exc:
+                    state.warnings.append(
+                        f"{state.display_name} translation unavailable; source transcript retained: {exc}"
+                    )
             if state.shared_mic and final:
                 self.record.processing_stage = ProcessingStage.diarizing
                 await save_record(self.record)
