@@ -12,7 +12,7 @@ const isDeployedWeb = Boolean(
   browserLocation.hostname !== "127.0.0.1",
 );
 const defaultApiUrl = isDeployedWeb
-  ? "https://helascribe-api.onrender.com/api"
+  ? "https://d39saojiwcdxjz.cloudfront.net/api"
   : "http://localhost:8000/api";
 export const API_URL = runtimeEnv?.EXPO_PUBLIC_API_URL ?? defaultApiUrl;
 export const WS_URL = API_URL.replace(/^http/, "ws") + "/live";
