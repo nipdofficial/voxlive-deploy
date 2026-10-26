@@ -1476,7 +1476,7 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
           <LinearGradient colors={["#A78BFA", "#6D5CE7"]} style={styles.logo}>
             <MaterialCommunityIcons name="waveform" size={23} color="white" />
           </LinearGradient>
-          <View><Text style={styles.brandName}>VoxLive</Text><Text style={styles.brandTagline}>VOICE TO TEXT, BEAUTIFULLY</Text></View>
+          <View><Text style={styles.brandName}>VoxLive</Text><Text style={styles.brandTagline}>TURN EVERY VOICE INTO WORDS—LIVE</Text></View>
         </Pressable>
         {isWide ? (
           <View style={styles.desktopNav}>

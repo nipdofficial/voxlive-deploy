@@ -108,7 +108,7 @@ export default function AuthScreen({
               </LinearGradient>
               <View>
                 <Text style={styles.brandName}>VoxLive</Text>
-                <Text style={styles.brandTagline}>VOICE TO TEXT, BEAUTIFULLY</Text>
+                <Text style={styles.brandTagline}>TURN EVERY VOICE INTO WORDS—LIVE</Text>
               </View>
             </View>
 
