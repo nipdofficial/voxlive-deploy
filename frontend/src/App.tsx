@@ -677,6 +677,7 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
   const [meetingConnection, setMeetingConnection] = useState<MeetingConnection | null>(null);
   const [meetingParticipants, setMeetingParticipants] = useState<MeetingParticipantView[]>([]);
   const [meetingMicEnabled, setMeetingMicEnabled] = useState(true);
+  const [meetingMicBusy, setMeetingMicBusy] = useState(false);
   const [meetingSpeakerMuted, setMeetingSpeakerMuted] = useState(false);
   const [meetingError, setMeetingError] = useState<string | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
@@ -1244,6 +1245,7 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
     meetingClientRef.current = client;
     if (connection.is_host) await startMeetingAudioCapture(connection);
     setMeetingMicEnabled(connection.is_host);
+    setMeetingMicBusy(false);
     if (connection.language) setLanguage(connection.language);
     setActive(true);
     setBusy(false);
@@ -1263,8 +1265,9 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
 
   const toggleMeetingMicrophone = async () => {
     const connection = meetingConnection;
-    if (!connection?.is_host) return;
+    if (!connection?.is_host || meetingMicBusy) return;
     const enabled = !meetingMicEnabled;
+    setMeetingMicBusy(true);
     try {
       if (enabled) {
         await prepareMeetingMicrophone();
@@ -1276,6 +1279,8 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
       setMeetingMicEnabled(enabled);
     } catch (error) {
       Alert.alert("Microphone", error instanceof Error ? error.message : "Could not change microphone state");
+    } finally {
+      setMeetingMicBusy(false);
     }
   };
 
@@ -1311,6 +1316,8 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
     setBusy(connection.is_host);
     setStatus(connection.is_host ? "finalizing meeting" : "left meeting");
     if (connection.is_host) await stopMeetingAudioCapture();
+    setMeetingMicEnabled(false);
+    setMeetingMicBusy(false);
     if (connection.is_host && connection.host_secret) {
       const result = await endMeeting(connection.room_code, connection.host_secret);
       setCurrentRecordId(result.id);
@@ -1319,7 +1326,7 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
     }
     await meetingClientRef.current?.disconnect();
     meetingClientRef.current = null;
-    setMeetingMicEnabled(true);
+    setMeetingMicEnabled(false);
     setVoiceIntensity(0);
     setMeetingSpeakerMuted(false);
     setMeetingParticipants([]);
@@ -1689,7 +1696,7 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
                   </View>
                   <View style={styles.autoLanguageActions}>
                     <View style={styles.autoLanguageBadge}><Text style={styles.autoLanguageBadgeText}>{language === "Mixed" ? "AUTO" : "SET"}</Text></View>
-                    {meetingConnection?.is_host && active ? <Pressable accessibilityRole="button" accessibilityLabel={meetingMicEnabled ? "Mute microphone" : "Unmute microphone"} onPress={() => void toggleMeetingMicrophone()} style={[styles.micToggleButton, !meetingMicEnabled && styles.micToggleButtonMuted]}><Feather name={meetingMicEnabled ? "mic" : "mic-off"} size={15} color="white" /><Text style={styles.micToggleText}>{meetingMicEnabled ? "Mute mic" : "Unmute mic"}</Text></Pressable> : null}
+                    {meetingConnection?.is_host && active ? <Pressable accessibilityRole="button" accessibilityLabel={meetingMicEnabled ? "Mute microphone" : "Unmute microphone"} accessibilityState={{ disabled: meetingMicBusy }} disabled={meetingMicBusy} onPress={() => void toggleMeetingMicrophone()} style={[styles.micToggleButton, !meetingMicEnabled && styles.micToggleButtonMuted, meetingMicBusy && { opacity: 0.65 }]}><Feather name={meetingMicBusy ? "loader" : meetingMicEnabled ? "mic" : "mic-off"} size={15} color="white" /><Text style={styles.micToggleText}>{meetingMicBusy ? "Updating mic…" : meetingMicEnabled ? "Mute mic" : "Unmute mic"}</Text></Pressable> : null}
                   </View>
                 </View>
               </View>

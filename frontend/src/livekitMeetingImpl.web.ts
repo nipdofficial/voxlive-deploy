@@ -98,14 +98,19 @@ export const connectMeeting: ConnectMeeting = async (url, token, callbacks, opti
   updateParticipants();
   return {
     setMicrophoneEnabled: async (enabled: boolean) => {
-      await room.localParticipant.setMicrophoneEnabled(enabled);
-      if (options.publishMicrophone || options.notifyMicState) {
+      // The organizer's transcription microphone is captured by the secure
+      // meeting audio socket. Do not create a second LiveKit microphone track
+      // when the UI is only toggling/broadcasting that capture state.
+      if (options.publishMicrophone) {
+        await room.localParticipant.setMicrophoneEnabled(enabled);
+      }
+      if (options.notifyMicState) {
         const payload = new TextEncoder().encode(JSON.stringify({ type: "mic", identity: room.localParticipant.identity, name: room.localParticipant.name || "Organizer", muted: !enabled }));
         await room.localParticipant.publishData(payload, { reliable: true, topic: "meeting.mic" });
       }
     },
     disconnect: async () => {
-      await room.localParticipant.setMicrophoneEnabled(false);
+      if (options.publishMicrophone) await room.localParticipant.setMicrophoneEnabled(false);
       document.querySelectorAll("[data-livekit-meeting-audio='true']").forEach((element) => element.remove());
       await room.disconnect();
     },
