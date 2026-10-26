@@ -1422,7 +1422,7 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
   const organizerMeeting = sessionType === "Meeting";
   const organizerSessionSetup = Boolean(meetingConnection?.is_host && !active);
   const availableSessionTypes = organizerSessionSetup
-    ? SESSION_TYPES.filter((item) => item.value === "Live" || item.value === "Upload")
+    ? SESSION_TYPES.filter((item) => item.value === "Record" || item.value === "Live" || item.value === "Upload")
     : SESSION_TYPES.filter((item) => !(organizerMeeting && item.value === "Record"));
   const filteredHistory = useMemo(() => {
     const needle = historySearch.trim().toLocaleLowerCase();
@@ -1513,6 +1513,11 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
           authToken={authToken ?? ""}
           onOpenCreatedSession={async (connection, title) => {
             await prepareMeetingMicrophone();
+            setCurrentRecordId(null);
+            setProcessingStage(null);
+            setDuration(0);
+            setVoiceIntensity(0);
+            setMeetingError(null);
             setMeetingName(connection.display_name);
             setMeetingTitle(title);
             setLanguage(connection.language ?? "Mixed");
@@ -1527,11 +1532,16 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
             await connectToMeeting(connection, title);
           }}
           onStartCreatedSession={async (connection, title) => {
+            setCurrentRecordId(null);
+            setProcessingStage(null);
+            setDuration(0);
+            setVoiceIntensity(0);
+            setMeetingError(null);
             setMeetingName(connection.display_name);
             setMeetingTitle(title);
             setLanguage(connection.language ?? "Mixed");
             // Creating a QR room must not implicitly start microphone capture.
-            // Stage the organizer in the ready screen so Live/Upload can be chosen.
+            // Stage the organizer in the ready screen so Record, Live, or Upload can be chosen.
             setSessionType("Live");
             setTab("new");
             setMeetingConnection(connection);
