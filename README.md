@@ -108,26 +108,20 @@ npm run typecheck
 npm run build:web
 ```
 
-## Deployment
+## AWS deployment
 
-The repository includes deployment configuration for a split Render/Vercel deployment:
+Production uses AWS only: the Expo web export is published to Amazon S3 and
+served through CloudFront, while the FastAPI API runs on the AWS EC2 Docker
+host behind the same CloudFront distribution at `/api`.
 
-1. In Render, create a Blueprint from the repository. `render.yaml` creates the
-	FastAPI web service from `backend/`, binds Uvicorn to Render's `PORT`, and
-	mounts the Google service-account JSON as a secret file.
-2. In the Render service, set the values marked `sync: false` in `render.yaml`.
-	Set `ALLOWED_ORIGINS` to the final Vercel URL, such as
-	`https://helascribe.vercel.app`. Paste the service-account JSON into Render's
-	Secret Files entry named `service_account.json`.
-3. In Vercel, import the same repository and set the project Root Directory to
-	`frontend`. `frontend/vercel.json` builds the Expo web export into `dist`.
-4. Add the Vercel environment variable `EXPO_PUBLIC_API_URL` with the Render
-	API URL plus `/api`, such as
-	`https://helascribe-api.onrender.com/api`, then redeploy Vercel.
+Build the frontend with `npm run build:web`, sync `frontend/dist` to the
+production S3 bucket, and invalidate the CloudFront distribution after each
+release. Build the backend with `backend/Dockerfile`; persist `backend/data`
+on an attached volume and provide `PUBLIC_APP_URL` as the CloudFront URL so
+QR join links stay inside AWS.
 
-Render's default filesystem is ephemeral, so the JSON history and uploaded audio
-under `backend/data/` will be lost on restart or redeploy. Use a database and
-object storage before treating this as a production multi-user deployment.
+For long-term production, move JSON storage to Amazon RDS and audio to S3,
+then place the API behind an AWS load balancer before running multiple hosts.
 
 ## Processing behavior
 

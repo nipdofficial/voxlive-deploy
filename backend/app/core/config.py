@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     app_reload: bool = False
     api_prefix: str = "/api"
     allowed_origins: str = "*"
-    public_app_url: str = "https://voxlive-deploy-frontend.vercel.app"
+    public_app_url: str = "https://d39saojiwcdxjz.cloudfront.net"
 
     vertex_service_account_json: Path = Path("service_account.json")
     gcp_project: str | None = None
@@ -82,9 +82,7 @@ class Settings(BaseSettings):
     def enforce_tamil_translation_target(self) -> "Settings":
         """Keep deployment/environment overrides from selecting another target."""
         self.target_language = Language.tamil
-        # Older Render environments may retain legacy IDs after a Blueprint
-        # update. Use the 3.8 Live API model, never a generateContent/transcribe
-        # model or a 2.5 Live model, for the persistent streaming connection.
+        # Keep the persistent streaming connection on the supported live model.
         if self.gemini_live_model != "gemini-3.5-transcribe-live":
             self.gemini_live_model = "gemini-3.5-transcribe-live"
         if "transcribe" in self.gemini_batch_model.lower() or self.gemini_batch_model in {

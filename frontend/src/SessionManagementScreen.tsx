@@ -21,6 +21,13 @@ import { createMeeting, getManagedMeetingHistory, getManagedMeetings, getSession
 import type { Language, MeetingConnection, SessionInfo, TranscriptRecord } from "./types";
 import { SchedulePicker, todayLocal } from "./SchedulePicker";
 
+async function buildJoinQr(roomCode: string): Promise<string> {
+  const joinUrl = `${typeof window !== "undefined" ? window.location.origin : "https://d39saojiwcdxjz.cloudfront.net"}/?session=${encodeURIComponent(roomCode.trim().toUpperCase())}`;
+  if (Platform.OS !== "web") return getSessionQrUrl(roomCode);
+  const qr = await import("qrcode");
+  return qr.toDataURL(joinUrl, { width: 320, margin: 2, errorCorrectionLevel: "M" });
+}
+
 interface SessionManagementScreenProps {
   onOpenCreatedSession: (connection: MeetingConnection, title: string) => Promise<void>;
   onStartCreatedSession: (connection: MeetingConnection, title: string) => Promise<void>;
@@ -123,7 +130,7 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
         authToken,
       );
 
-      const qrUrl = getSessionQrUrl(conn.room_code);
+      const qrUrl = await buildJoinQr(conn.room_code);
       const info = await getSessionInfo(conn.room_code).catch(() => undefined);
 
       setActiveSession({
@@ -131,7 +138,7 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
         title: sessionTitle.trim() || "Event Session",
         qrUrl,
         connection: conn,
-        joinUrl: `${typeof window !== "undefined" ? window.location.origin : "https://voxlive-deploy-frontend.vercel.app"}/?session=${conn.room_code}`,
+        joinUrl: `${typeof window !== "undefined" ? window.location.origin : "https://d39saojiwcdxjz.cloudfront.net"}/?session=${conn.room_code}`,
         info,
       });
       void getManagedMeetings(authToken).then(setManagedSessions).catch(() => undefined);
@@ -151,9 +158,9 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
         setActiveSession({
           code: session.room_code,
           title: session.title,
-          qrUrl: getSessionQrUrl(session.room_code),
+          qrUrl: await buildJoinQr(session.room_code),
           connection,
-          joinUrl: `${typeof window !== "undefined" ? window.location.origin : "https://voxlive-deploy-frontend.vercel.app"}/?session=${session.room_code}`,
+          joinUrl: `${typeof window !== "undefined" ? window.location.origin : "https://d39saojiwcdxjz.cloudfront.net"}/?session=${session.room_code}`,
           info: session,
         });
       } else if (session.status === "live") {
