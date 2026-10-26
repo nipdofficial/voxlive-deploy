@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import Response
 
-from app.api.routes.history import list_history, save_record
+from app.api.routes.history import delete_history, list_history, save_record
 from app.api.routes.auth import current_session
 from app.core.config import get_settings
 from app.models.auth import SessionRecord
@@ -130,6 +130,23 @@ async def list_managed_history(
     organizer: SessionRecord = Depends(current_session),
 ) -> list[TranscriptRecord]:
     return [record for record in await list_history() if record.organizer_user_id == organizer.user_id]
+
+
+@router.delete("/{code}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_managed_meeting(
+    code: str,
+    organizer: SessionRecord = Depends(current_session),
+) -> None:
+    session = meeting_registry.get(code)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if session.organizer_user_id != organizer.user_id:
+        raise HTTPException(status_code=403, detail="Only the session organizer can delete it")
+    if session.started and not session.ending:
+        raise HTTPException(status_code=409, detail="A live session must be ended before it can be removed")
+    meeting_registry.sessions.pop(session.code, None)
+    await meeting_registry.persist_pending()
+    await delete_history(session.record.id)
 
 
 @router.post("/{code}/organizer", response_model=MeetingConnection)

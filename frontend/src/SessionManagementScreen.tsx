@@ -17,7 +17,7 @@ import * as Clipboard from "expo-clipboard";
 import * as Sharing from "expo-sharing";
 import { File, Paths } from "expo-file-system";
 
-import { createMeeting, getManagedMeetingHistory, getManagedMeetings, getSessionInfo, getSessionQrUrl, resumeOrganizerMeeting } from "./api";
+import { createMeeting, deleteManagedMeeting, getManagedMeetingHistory, getManagedMeetings, getSessionInfo, getSessionQrUrl, resumeOrganizerMeeting } from "./api";
 import type { Language, MeetingConnection, SessionInfo, TranscriptRecord } from "./types";
 import { SchedulePicker, todayLocal } from "./SchedulePicker";
 
@@ -48,6 +48,7 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
   const [startDate, setStartDate] = useState("");
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
+  const [reminderMinutes, setReminderMinutes] = useState(15);
   const [creating, setCreating] = useState(false);
 
   // Active session state (after organizer creates one)
@@ -65,6 +66,20 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
   const [pastSessions, setPastSessions] = useState<TranscriptRecord[]>([]);
   const [managedSessions, setManagedSessions] = useState<SessionInfo[]>([]);
   const [starting, setStarting] = useState(false);
+
+  const scheduleBrowserReminder = (session: SessionInfo | undefined) => {
+    if (Platform.OS !== "web" || !session?.scheduled_start || typeof window === "undefined" || !("Notification" in window)) return;
+    const start = new Date(session.scheduled_start).getTime();
+    const delay = start - Date.now() - reminderMinutes * 60_000;
+    if (delay <= 0 || delay > 2_147_000_000) return;
+    window.setTimeout(() => {
+      if (Notification.permission === "granted") new Notification(`VoxLive reminder: ${session.title}`, { body: `Your session starts ${reminderMinutes} minutes from now.` });
+    }, delay);
+  };
+
+  const requestReminderPermission = async () => {
+    if (Platform.OS === "web" && typeof window !== "undefined" && "Notification" in window && Notification.permission === "default") await Notification.requestPermission();
+  };
 
   useEffect(() => {
     const refresh = () => {
@@ -132,6 +147,8 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
 
       const qrUrl = await buildJoinQr(conn.room_code);
       const info = await getSessionInfo(conn.room_code).catch(() => undefined);
+      await requestReminderPermission();
+      scheduleBrowserReminder(info);
 
       setActiveSession({
         code: conn.room_code,
@@ -146,6 +163,24 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
       Alert.alert("Error Creating Session", err instanceof Error ? err.message : "Unknown error");
     } finally {
       setCreating(false);
+    }
+  };
+
+  const handleDeleteSession = (session: SessionInfo) => {
+    const remove = async () => {
+      try {
+        await deleteManagedMeeting(session.room_code, authToken);
+        if (activeSession?.code === session.room_code) setActiveSession(null);
+        setManagedSessions((items) => items.filter((item) => item.room_code !== session.room_code));
+        void getManagedMeetingHistory(authToken).then(setPastSessions).catch(() => undefined);
+      } catch (error) {
+        Alert.alert("Could not delete session", error instanceof Error ? error.message : "Please try again");
+      }
+    };
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      if (window.confirm(`Delete “${session.title}”? This cannot be undone.`)) void remove();
+    } else {
+      Alert.alert("Delete session", `Delete “${session.title}”? This cannot be undone.`, [{ text: "Cancel", style: "cancel" }, { text: "Delete", style: "destructive", onPress: () => void remove() }]);
     }
   };
 
@@ -352,6 +387,8 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
             >
               <Text style={styles.textButtonText}>Create Another Session</Text>
             </Pressable>
+
+            {activeSession.info && !activeSession.info.is_started ? <Pressable style={styles.deleteButton} onPress={() => handleDeleteSession(activeSession.info!)}><Feather name="trash-2" size={16} color="#F28B9A" /><Text style={styles.deleteButtonText}>Delete scheduled session</Text></Pressable> : null}
           </View>
         ) : (
           /* Create Session Form */
@@ -400,6 +437,10 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
                   <SchedulePicker kind="time" label="End time" value={endTime} onChange={setEndTime} isDark={isDark} />
                 </View>
                 <Text style={styles.hint}>Times use your device’s local time. Meetings appear under Upcoming until started.</Text>
+                <Text style={[styles.label, { marginTop: 14 }]}>Reminder notification</Text>
+                <View style={styles.reminderRow}>
+                  {[5, 15, 30].map((minutes) => <Pressable key={minutes} onPress={() => setReminderMinutes(minutes)} style={[styles.reminderOption, reminderMinutes === minutes && styles.reminderOptionActive]}><Feather name="bell" size={13} color={reminderMinutes === minutes ? "white" : "#A78BFA"} /><Text style={[styles.reminderText, reminderMinutes === minutes && { color: "white" }]}>{minutes} min before</Text></Pressable>)}
+                </View>
               </> : <Text style={styles.hint}>Create the room and QR now. When ready, choose Live or Upload before starting the organizer workflow.</Text>}
             </View>
 
@@ -455,7 +496,8 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
             </View>
             <View style={styles.rowActions}>
               <Pressable accessibilityRole="button" accessibilityLabel={`Show QR for ${session.title}`} disabled={starting} onPress={() => void openManagedSession(session, true)} style={styles.rowSecondaryAction}><Feather name="grid" size={14} color="#CDBDFF" /><Text style={styles.rowSecondaryText}>QR</Text></Pressable>
-              <Pressable accessibilityRole="button" accessibilityLabel={`${canStart ? "Start" : "Prepare"} ${session.title}`} disabled={starting} onPress={() => void openManagedSession(session)} style={styles.rowAction}><Text style={styles.rowActionText}>{canStart ? "Start" : "Prepare"}</Text></Pressable>
+              <Pressable accessibilityRole="button" accessibilityLabel={`${canStart ? "Start" : "Prepare"} ${session.title}`} disabled={starting || Boolean(session.scheduled_start && new Date(session.scheduled_start).getTime() > Date.now())} onPress={() => void openManagedSession(session)} style={[styles.rowAction, Boolean(session.scheduled_start && new Date(session.scheduled_start).getTime() > Date.now()) && { opacity: 0.45 }]}><Text style={styles.rowActionText}>{session.scheduled_start && new Date(session.scheduled_start).getTime() > Date.now() ? "Scheduled" : canStart ? "Start" : "Prepare"}</Text></Pressable>
+              <Pressable accessibilityRole="button" accessibilityLabel={`Delete ${session.title}`} disabled={starting} onPress={() => handleDeleteSession(session)} style={styles.deleteIconButton}><Feather name="trash-2" size={15} color="#F28B9A" /></Pressable>
             </View>
           </View>;
         })}
@@ -624,6 +666,12 @@ const getStyles = (isDark: boolean) =>
       color: isDark ? "#A09AAB" : "#645E73",
       fontSize: 14,
     },
+    deleteButton: { marginTop: 12, minHeight: 42, borderRadius: 10, borderWidth: 1, borderColor: "rgba(242,139,154,0.28)", backgroundColor: "rgba(242,139,154,0.08)", flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
+    deleteButtonText: { color: "#F28B9A", fontSize: 13, fontWeight: "700" },
+    reminderRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+    reminderOption: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 9, borderRadius: 9, borderWidth: 1, borderColor: "rgba(167,139,250,0.28)", backgroundColor: "rgba(167,139,250,0.08)" },
+    reminderOptionActive: { backgroundColor: "#755BD0", borderColor: "#8067CE" },
+    reminderText: { color: "#B8B1C8", fontSize: 11, fontWeight: "600" },
     sessionHeaderRow: {
       flexDirection: "row",
       justifyContent: "space-between",
@@ -711,6 +759,7 @@ const getStyles = (isDark: boolean) =>
     rowActionText: { color: "white", fontSize: 12, fontWeight: "700" },
     rowSecondaryAction: { minHeight: 36, paddingHorizontal: 10, borderRadius: 8, flexDirection: "row", alignItems: "center", gap: 5, backgroundColor: isDark ? "#2A2338" : "#E9E2F6" },
     rowSecondaryText: { color: isDark ? "#CDBDFF" : "#62499A", fontSize: 12, fontWeight: "700" },
+    deleteIconButton: { width: 36, height: 36, borderRadius: 8, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(242,139,154,0.10)", borderWidth: 1, borderColor: "rgba(242,139,154,0.22)" },
     liveRow: { borderWidth: 1, borderColor: "rgba(85,214,164,0.30)", backgroundColor: isDark ? "rgba(85,214,164,0.07)" : "#F1FBF7" },
     sessionRowIcon: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: isDark ? "#2A2338" : "#ECE7F6" },
     sectionHeading: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 12 },

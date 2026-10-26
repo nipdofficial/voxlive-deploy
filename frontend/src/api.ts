@@ -180,6 +180,14 @@ export async function getManagedMeetingHistory(token: string): Promise<Transcrip
   return response.json();
 }
 
+export async function deleteManagedMeeting(roomCode: string, token: string): Promise<void> {
+  const response = await fetch(`${API_URL}/meetings/${encodeURIComponent(roomCode.trim().toUpperCase())}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) throw new Error((await response.text()) || "Could not delete session");
+}
+
 export function resumeOrganizerMeeting(roomCode: string, token: string): Promise<MeetingConnection> {
   return meetingRequest(`/meetings/${encodeURIComponent(roomCode)}/organizer`, {}, token);
 }
