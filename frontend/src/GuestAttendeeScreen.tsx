@@ -14,6 +14,7 @@ import {
 import * as Sharing from "expo-sharing";
 import { File, Paths } from "expo-file-system";
 import { Feather } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 
 import { getSessionInfo, getTranscript, joinMeeting, submitMeetingFeedback } from "./api";
 import type { MeetingClient, MeetingParticipantView } from "./livekitMeeting";
@@ -235,19 +236,20 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
       <ScrollView contentContainerStyle={[styles.content, participantView && { paddingBottom: 110 }]}>
         <View style={styles.brand}>
           <View style={styles.logo}><Feather name="radio" size={20} color="white" /></View>
-          <View><Text style={styles.brandName}>VoxLive</Text><Text style={styles.brandTag}>GUEST LIVE SESSION</Text></View>
+          <View><Text style={styles.brandName}>VoxLive</Text><Text style={styles.brandTag}>LIVE TRANSCRIPT EXPERIENCE</Text></View>
+          <View style={styles.secureBadge}><Feather name="shield" size={12} color="#55D6A4" /><Text style={styles.secureText}>SECURE ROOM</Text></View>
         </View>
-        <View style={styles.hero}>
-          <Text style={styles.eyebrow}>QR ATTENDEE ACCESS</Text>
+        <LinearGradient colors={["#30245B", "#1A1724", "#18161C"]} start={[0, 0]} end={[1, 1]} style={styles.hero}>
+          <View style={styles.heroTopline}><View style={styles.livePill}><View style={[styles.liveDot, (joined || status === "ready") && styles.liveDotActive]} /><Text style={styles.livePillText}>{joined ? "LIVE NOW" : status === "ended" ? "ENDED" : status === "upcoming" ? "UPCOMING" : "READY TO JOIN"}</Text></View><Text style={styles.roomCode}>ROOM {roomCode}</Text></View>
+          <Text style={styles.eyebrow}>YOU’RE JOINING</Text>
           <Text style={styles.title}>{info?.title ?? "Live session"}</Text>
-          <Text style={styles.subtitle}>Room {roomCode}</Text>
-          {info?.speaker_name ? <Text style={styles.speakerLabel}>Speaker - {info.speaker_name}</Text> : null}
+          {info?.speaker_name ? <Text style={styles.speakerLabel}><Feather name="user" size={12} color="#CDBDFF" />  Hosted by {info.speaker_name}</Text> : null}
           <View style={styles.stats}>
-            <Text style={styles.stat}>{joined ? "● LIVE" : status.toUpperCase()}</Text>
-            <Text style={styles.stat}>{participants.length} connected</Text>
-            <Text style={styles.stat}>⏱ {formatTime(elapsed)}</Text>
+            <View style={styles.stat}><Feather name="users" size={13} color="#CDBDFF" /><Text style={styles.statText}>{participants.length} connected</Text></View>
+            <View style={styles.stat}><Feather name="clock" size={13} color="#CDBDFF" /><Text style={styles.statText}>{formatTime(elapsed)}</Text></View>
+            <View style={styles.stat}><Feather name="globe" size={13} color="#CDBDFF" /><Text style={styles.statText}>Sinhala + Mixed</Text></View>
           </View>
-        </View>
+        </LinearGradient>
         {error ? <View style={styles.error}><Text style={styles.errorText}>{error}</Text></View> : null}
         {!participantView ? (
           <View style={styles.joinCard}>
@@ -262,10 +264,11 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
           <>
             {status === "ended" ? <View style={styles.ended}><Feather name="check-circle" size={18} color="#55D6A4" /><View><Text style={styles.endedTitle}>Session ended</Text><Text style={styles.endedText}>The organizer ended this session. Your transcript is saved.</Text></View></View> : null}
             {speakerMuted ? <View style={styles.muted}><Feather name="mic-off" size={16} color="#F3C969" /><Text style={styles.mutedText}>The organizer muted the microphone.</Text></View> : null}
+            {participants.length ? <View style={styles.participantStrip}><View><Text style={styles.participantLabel}>IN THE ROOM</Text><Text style={styles.participantCount}>{participants.length} participant{participants.length === 1 ? "" : "s"} connected</Text></View><View style={styles.avatarStack}>{participants.slice(0, 5).map((participant, index) => <View key={participant.identity} style={[styles.avatar, { zIndex: 5 - index }]}><Text style={styles.avatarText}>{participant.name.slice(0, 1).toUpperCase()}</Text></View>)}{participants.length > 5 ? <Text style={styles.moreParticipants}>+{participants.length - 5}</Text> : null}</View></View> : null}
             <View style={styles.transcript}>
               <View style={styles.transcriptHeader}>
-                <Text style={styles.cardTitle}>Live transcript</Text>
-                <Text style={[styles.live, status === "ended" && { color: "#F3C969" }]}>{status === "ended" ? "● ENDED" : "● LIVE"}</Text>
+                <View><Text style={styles.transcriptEyebrow}>REAL-TIME CAPTIONS</Text><Text style={styles.cardTitle}>Live transcript</Text></View>
+                <View style={styles.transcriptMode}><View style={[styles.liveDot, status !== "ended" && styles.liveDotActive]} /><Text style={[styles.live, status === "ended" && { color: "#F3C969" }]}>{status === "ended" ? "ENDED" : "LIVE"}</Text></View>
               </View>
               <ScrollView
                 ref={transcriptScrollRef}
@@ -342,19 +345,28 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
 const createStyles = () => StyleSheet.create({
   page: { flex: 1, backgroundColor: "#100E14", minHeight: Platform.OS === "web" ? ("100dvh" as any) : "100%" },
   glow: { position: "absolute", width: 500, height: 500, borderRadius: 250, top: -260, alignSelf: "center", backgroundColor: "rgba(100,70,170,0.10)" },
-  content: { width: "100%", maxWidth: 820, alignSelf: "center", padding: 24, gap: 16, flexGrow: 1 },
+  content: { width: "100%", maxWidth: 980, alignSelf: "center", padding: 24, gap: 18, flexGrow: 1 },
   brand: { flexDirection: "row", alignItems: "center", gap: 10 },
   logo: { width: 42, height: 42, borderRadius: 13, backgroundColor: "#755BD0", alignItems: "center", justifyContent: "center" },
   brandName: { color: "#F5F2FA", fontFamily: "DMSans_700Bold", fontSize: 18 },
   brandTag: { color: "#9F7AEA", fontFamily: "DMSans_700Bold", fontSize: 8, letterSpacing: 1.2, marginTop: 2 },
-  hero: { padding: 24, borderRadius: 20, backgroundColor: "#1A181E", borderWidth: 1, borderColor: "#302C38" },
+  secureBadge: { marginLeft: "auto", flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 9, paddingVertical: 7, borderRadius: 10, backgroundColor: "rgba(85,214,164,0.10)", borderWidth: 1, borderColor: "rgba(85,214,164,0.20)" },
+  secureText: { color: "#55D6A4", fontFamily: "DMSans_700Bold", fontSize: 8, letterSpacing: 0.7 },
+  hero: { padding: 25, borderRadius: 22, borderWidth: 1, borderColor: "#4A3A79", overflow: "hidden", shadowColor: "#000", shadowOpacity: 0.22, shadowRadius: 20, shadowOffset: { width: 0, height: 10 } },
+  heroTopline: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 22 },
+  livePill: { flexDirection: "row", alignItems: "center", gap: 7, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 99, backgroundColor: "rgba(85,214,164,0.12)" },
+  liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#7B7387" },
+  liveDotActive: { backgroundColor: "#55D6A4", shadowColor: "#55D6A4", shadowOpacity: 0.8, shadowRadius: 6 },
+  livePillText: { color: "#BFEFDC", fontFamily: "DMSans_700Bold", fontSize: 9, letterSpacing: 0.8 },
+  roomCode: { color: "#AFA2D9", fontFamily: "DMSans_700Bold", fontSize: 9, letterSpacing: 1.2 },
   eyebrow: { color: "#8063D1", fontFamily: "DMSans_700Bold", fontSize: 9, letterSpacing: 1.8 },
   title: { color: "#F5F2FA", fontFamily: "DMSans_700Bold", fontSize: 28, marginTop: 8 },
   subtitle: { color: "#ABA4B9", fontFamily: "DMSans_400Regular", fontSize: 12, marginTop: 6 },
-  speakerLabel: { color: "#CDBDFF", fontFamily: "DMSans_600SemiBold", fontSize: 12, marginTop: 8 },
+  speakerLabel: { color: "#CDBDFF", fontFamily: "DMSans_600SemiBold", fontSize: 12, marginTop: 8, flexDirection: "row", alignItems: "center" },
   stats: { flexDirection: "row", flexWrap: "wrap", gap: 9, marginTop: 18 },
-  stat: { color: "#D8CDF8", backgroundColor: "rgba(159,122,234,0.16)", paddingHorizontal: 11, paddingVertical: 8, borderRadius: 11, fontFamily: "DMSans_700Bold", fontSize: 11 },
-  joinCard: { padding: 22, borderRadius: 18, backgroundColor: "#18161C", borderWidth: 1, borderColor: "#302C38", gap: 11 },
+  stat: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "rgba(159,122,234,0.16)", paddingHorizontal: 11, paddingVertical: 8, borderRadius: 11 },
+  statText: { color: "#D8CDF8", fontFamily: "DMSans_700Bold", fontSize: 10 },
+  joinCard: { padding: 24, borderRadius: 20, backgroundColor: "#18161C", borderWidth: 1, borderColor: "#302C38", gap: 12, shadowColor: "#000", shadowOpacity: 0.15, shadowRadius: 16, shadowOffset: { width: 0, height: 8 } },
   cardTitle: { color: "#E5E1ED", fontFamily: "DMSans_700Bold", fontSize: 16 },
   cardHint: { color: "#ABA4B9", fontFamily: "DMSans_400Regular", fontSize: 12 },
   input: { height: 48, borderRadius: 11, borderWidth: 1, borderColor: "#4B4262", backgroundColor: "#25222B", color: "#F5F2FA", fontFamily: "DMSans_400Regular", paddingHorizontal: 14, fontSize: 13 },
@@ -362,8 +374,17 @@ const createStyles = () => StyleSheet.create({
   primaryText: { color: "white", fontFamily: "DMSans_700Bold", fontSize: 13 },
   error: { padding: 13, borderRadius: 11, backgroundColor: "rgba(239,92,117,0.12)" },
   errorText: { color: "#F38A9B", fontFamily: "DMSans_500Medium", fontSize: 12 },
-  transcript: { padding: 20, borderRadius: 20, backgroundColor: "#18161C", borderWidth: 1, borderColor: "#302C38", gap: 17 },
+  participantStrip: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 15, borderRadius: 16, backgroundColor: "#191721", borderWidth: 1, borderColor: "#302C38" },
+  participantLabel: { color: "#8063D1", fontFamily: "DMSans_700Bold", fontSize: 8, letterSpacing: 1.5 },
+  participantCount: { color: "#B9B1C5", fontFamily: "DMSans_500Medium", fontSize: 11, marginTop: 4 },
+  avatarStack: { flexDirection: "row", alignItems: "center", paddingLeft: 10 },
+  avatar: { width: 30, height: 30, borderRadius: 15, marginLeft: -7, borderWidth: 2, borderColor: "#191721", backgroundColor: "#755BD0", alignItems: "center", justifyContent: "center" },
+  avatarText: { color: "white", fontFamily: "DMSans_700Bold", fontSize: 11 },
+  moreParticipants: { color: "#CDBDFF", fontFamily: "DMSans_700Bold", fontSize: 10, marginLeft: 7 },
+  transcript: { padding: 21, borderRadius: 20, backgroundColor: "#18161C", borderWidth: 1, borderColor: "#302C38", gap: 17, shadowColor: "#000", shadowOpacity: 0.16, shadowRadius: 18, shadowOffset: { width: 0, height: 8 } },
   transcriptHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingBottom: 13, borderBottomWidth: 1, borderBottomColor: "#302C38" },
+  transcriptEyebrow: { color: "#8063D1", fontFamily: "DMSans_700Bold", fontSize: 8, letterSpacing: 1.5, marginBottom: 4 },
+  transcriptMode: { flexDirection: "row", alignItems: "center", gap: 6 },
   live: { color: "#55D6A4", fontFamily: "DMSans_700Bold", fontSize: 10 },
   line: { flexDirection: "row", gap: 10 },
   time: { width: 38, color: "#A39BAF", fontFamily: "DMSans_500Medium", fontSize: 10, paddingTop: 2 },
