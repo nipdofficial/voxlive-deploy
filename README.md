@@ -120,6 +120,24 @@ release. Build the backend with `backend/Dockerfile`; persist `backend/data`
 on an attached volume and provide `PUBLIC_APP_URL` as the CloudFront URL so
 QR join links stay inside AWS.
 
+### Data-preserving backend updates
+
+User accounts, authentication sessions, meeting definitions, transcript
+history, and retained audio are persisted under `DATA_DIR`. Production must
+mount that directory from the persistent EBS volume (currently
+`/mnt/voxlive-data/data`) before starting the container. Set
+`VOXLIVE_DATA_DIR=/mnt/voxlive-data/data` when using `docker compose -f
+docker-compose.aws.yml`.
+
+For every backend release: stop only the API container, keep the EBS volume
+attached, build/start the new image with the same data mount, and verify the
+data files before removing the old image. Never run `mkfs`, delete the data
+directory, use `docker compose down -v`, or switch to a new empty Docker named
+volume. Before replacing an EC2 host, create an EBS snapshot and attach the
+same volume to the replacement host. Existing login tokens remain valid until
+their configured expiry (`AUTH_SESSION_HOURS`, currently 24 hours); a normal
+container or host restart does not delete them.
+
 For long-term production, move JSON storage to Amazon RDS and audio to S3,
 then place the API behind an AWS load balancer before running multiple hosts.
 
