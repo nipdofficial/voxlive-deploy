@@ -16,6 +16,7 @@ import { Feather } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import * as Sharing from "expo-sharing";
 import { File, Paths } from "expo-file-system";
+import { LinearGradient } from "expo-linear-gradient";
 
 import { createMeeting, deleteManagedMeeting, getManagedMeetingHistory, getManagedMeetings, getSessionInfo, getSessionQrUrl, resumeOrganizerMeeting } from "./api";
 import type { Language, MeetingConnection, SessionInfo, TranscriptRecord } from "./types";
@@ -271,19 +272,21 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
 
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.headerIcon}><Feather name="calendar" size={20} color="#CDBDFF" /></View>
+      <LinearGradient colors={isDark ? ["#2D2254", "#171329"] : ["#F0E9FF", "#FFFFFF"]} start={[0, 0]} end={[1, 1]} style={styles.hero}>
+        <View style={styles.heroGlow} />
+        <View style={styles.headerIcon}><Feather name="calendar" size={20} color="#FFFFFF" /></View>
         <Text style={styles.eyebrow}>WORKSPACE / SESSIONS</Text>
-        <Text style={styles.title}>Session management</Text>
+        <Text style={styles.title}>Your live sessions</Text>
         <Text style={styles.subtitle}>
-          Create, monitor, and manage your live translation sessions from one place.
+          Create a room, invite your audience, and keep every live moment organized.
         </Text>
-      </View>
+        <View style={styles.heroMeta}><View style={styles.heroMetaDot} /><Text style={styles.heroMetaText}>Live translation workspace</Text><Feather name="arrow-up-right" size={14} color="#CDBDFF" /></View>
+      </LinearGradient>
 
       <View style={styles.overviewGrid}>
-        <View style={styles.overviewCard}><View style={[styles.overviewIcon, { backgroundColor: "rgba(85,214,164,0.13)" }]}><Feather name="radio" size={16} color="#55D6A4" /></View><View><Text style={styles.overviewValue}>{managedSessions.filter((session) => session.status === "live").length}</Text><Text style={styles.overviewLabel}>Live now</Text></View></View>
-        <View style={styles.overviewCard}><View style={[styles.overviewIcon, { backgroundColor: "rgba(167,139,250,0.15)" }]}><Feather name="archive" size={16} color="#A78BFA" /></View><View><Text style={styles.overviewValue}>{completedSessions.length}</Text><Text style={styles.overviewLabel}>Saved sessions</Text></View></View>
-        <View style={styles.overviewCard}><View style={[styles.overviewIcon, { backgroundColor: "rgba(243,201,105,0.13)" }]}><Feather name="calendar" size={16} color="#F3C969" /></View><View><Text style={styles.overviewValue}>{managedSessions.filter((session) => !session.is_started).length}</Text><Text style={styles.overviewLabel}>Not started</Text></View></View>
+        <View style={[styles.overviewCard, styles.liveOverview]}><View style={[styles.overviewIcon, { backgroundColor: "rgba(85,214,164,0.18)" }]}><Feather name="radio" size={16} color="#55D6A4" /></View><View><Text style={styles.overviewValue}>{managedSessions.filter((session) => session.status === "live").length}</Text><Text style={styles.overviewLabel}>Live now</Text></View><Feather style={styles.overviewArrow} name="activity" size={16} color="#55D6A4" /></View>
+        <View style={styles.overviewCard}><View style={[styles.overviewIcon, { backgroundColor: "rgba(167,139,250,0.18)" }]}><Feather name="archive" size={16} color="#A78BFA" /></View><View><Text style={styles.overviewValue}>{completedSessions.length}</Text><Text style={styles.overviewLabel}>Saved sessions</Text></View><Feather style={styles.overviewArrow} name="bar-chart-2" size={16} color="#A78BFA" /></View>
+        <View style={styles.overviewCard}><View style={[styles.overviewIcon, { backgroundColor: "rgba(243,201,105,0.18)" }]}><Feather name="calendar" size={16} color="#F3C969" /></View><View><Text style={styles.overviewValue}>{managedSessions.filter((session) => !session.is_started).length}</Text><Text style={styles.overviewLabel}>Upcoming</Text></View><Feather style={styles.overviewArrow} name="clock" size={16} color="#F3C969" /></View>
       </View>
 
       {activeSession ? (
@@ -513,39 +516,47 @@ const getStyles = (isDark: boolean) =>
   StyleSheet.create({
     container: {
       padding: 24,
+      paddingTop: 30,
       alignItems: "center",
       maxWidth: 900,
       alignSelf: "center",
       width: "100%",
     },
+    hero: { width: "100%", maxWidth: 900, minHeight: 220, borderRadius: 24, padding: 26, overflow: "hidden", borderWidth: 1, borderColor: isDark ? "rgba(205,189,255,0.18)" : "rgba(109,92,231,0.16)", marginBottom: 18, shadowColor: "#000", shadowOffset: { width: 0, height: 12 }, shadowOpacity: isDark ? 0.24 : 0.08, shadowRadius: 24, elevation: 5 },
+    heroGlow: { position: "absolute", width: 190, height: 190, borderRadius: 95, right: -58, top: -62, backgroundColor: "rgba(167,139,250,0.18)" },
     header: {
       alignItems: "center",
       marginBottom: 24,
       textAlign: "center",
     },
-    headerIcon: { width: 44, height: 44, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(167,139,250,0.15)", borderWidth: 1, borderColor: "rgba(167,139,250,0.28)", marginBottom: 12 },
+    headerIcon: { width: 46, height: 46, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: "#8067CE", borderWidth: 1, borderColor: "rgba(255,255,255,0.25)", marginBottom: 15 },
     eyebrow: {
       fontSize: 12,
       fontWeight: "700",
       letterSpacing: 1.5,
       color: "#A78BFA",
-      marginBottom: 6,
+      marginBottom: 8,
     },
     title: {
-      fontSize: 26,
-      fontWeight: "700",
+      fontSize: 30,
+      fontWeight: "800",
       color: isDark ? "#F3F0FF" : "#1E1A29",
       marginBottom: 8,
     },
     subtitle: {
       fontSize: 14,
       color: isDark ? "#A09AAB" : "#645E73",
-      textAlign: "center",
-      maxWidth: 540,
+      maxWidth: 560,
       lineHeight: 20,
+      textAlign: "left",
     },
+    heroMeta: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 20 },
+    heroMetaDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#55D6A4" },
+    heroMetaText: { color: isDark ? "#D7D1E8" : "#62558A", fontSize: 11, fontWeight: "700", letterSpacing: 0.3 },
     overviewGrid: { width: "100%", flexDirection: "row", flexWrap: "wrap", gap: 12, marginBottom: 18 },
-    overviewCard: { flex: 1, minWidth: 170, flexDirection: "row", alignItems: "center", gap: 12, padding: 15, borderRadius: 14, backgroundColor: isDark ? "#1C1829" : "#FFFFFF", borderWidth: 1, borderColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)" },
+    overviewCard: { flex: 1, minWidth: 170, minHeight: 84, flexDirection: "row", alignItems: "center", gap: 12, padding: 16, borderRadius: 17, backgroundColor: isDark ? "#1C1829" : "#FFFFFF", borderWidth: 1, borderColor: isDark ? "rgba(255,255,255,0.09)" : "rgba(0,0,0,0.08)", shadowColor: "#000", shadowOffset: { width: 0, height: 5 }, shadowOpacity: isDark ? 0.16 : 0.05, shadowRadius: 12, elevation: 2 },
+    liveOverview: { borderColor: "rgba(85,214,164,0.35)" },
+    overviewArrow: { marginLeft: "auto", opacity: 0.7 },
     overviewIcon: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center" },
     overviewValue: { color: isDark ? "#F3F0FF" : "#1E1A29", fontSize: 18, fontWeight: "800" },
     overviewLabel: { color: isDark ? "#9690A3" : "#71697D", fontSize: 11, marginTop: 2 },
@@ -583,13 +594,13 @@ const getStyles = (isDark: boolean) =>
     card: {
       width: "100%",
       backgroundColor: isDark ? "#1C1829" : "#FFFFFF",
-      borderRadius: 16,
-      padding: 24,
+      borderRadius: 20,
+      padding: 26,
       borderWidth: 1,
       borderColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)",
     },
     cardWide: {
-      maxWidth: 560,
+      maxWidth: 620,
     },
     controlCard: { maxWidth: 900, marginTop: 18, padding: 26 },
     controlHeader: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 12 },
