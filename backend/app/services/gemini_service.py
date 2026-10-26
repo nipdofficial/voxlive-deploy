@@ -300,9 +300,23 @@ class GeminiService:
             f"{speaker_guidance} "
             "Use seconds relative to the start of this audio clip for start and end."
         )
-        # Keep transcription and translation as separate model calls. The
-        # combined audio+translation request can rewrite Sinhala/Tamil source
-        # text or choose the wrong target script, especially in Mixed mode.
+        if translate_to and not _is_transcription_model(model or self.settings.gemini_batch_model):
+            source_language = (
+                "Sinhala, Tamil, or English, identified per utterance"
+                if language == Language.mixed
+                else "Sinhala only" if language == Language.sinhala
+                else "Tamil only" if language == Language.tamil
+                else "English only"
+            )
+            prompt += (
+                f" For every segment, translated_text is REQUIRED and must be written in "
+                f"{translate_to.value}. "
+                f"Translate only a verified {source_language} transcript faithfully. "
+                "This translation request does not permit transcribing, translating, or "
+                "rewriting speech excluded by the selected input-language mode. If the "
+                "source is already Tamil, copy the original text into translated_text. "
+                "Never leave translated_text empty and never replace the original text."
+            )
         timeout_seconds = request_timeout_seconds or self.settings.gemini_batch_timeout_seconds
         selected_model = model or self.settings.gemini_batch_model
         if "live-preview" in selected_model.lower():
@@ -447,9 +461,20 @@ class GeminiService:
         # especially important for real-time meetings: attendees need the
         # translated line while organizers still need the original words and
         # language detection metadata.
-        if translate_to and normalized:
-            # Always replace any provider-generated translation with the
-            # deterministic, source-aware translation pass.
+        if translate_to and normalized and _is_transcription_model(selected_model):
+            translations = await self.translate_segments(normalized, translate_to)
+            normalized = [
+                item.model_copy(update={"translated_text": translated})
+                for item, translated in zip(normalized, translations, strict=True)
+            ]
+        elif translate_to == Language.tamil and normalized and any(
+            not item.translated_text
+            or not has_expected_script(item.translated_text, SpokenLanguage.tamil)
+            for item in normalized
+        ):
+            # Structured audio responses normally include the accurate
+            # translation. Guard only missing or wrong-script responses with a
+            # second pass instead of replacing every embedded translation.
             translations = await self.translate_segments(normalized, translate_to)
             normalized = [
                 item.model_copy(update={"translated_text": translated})

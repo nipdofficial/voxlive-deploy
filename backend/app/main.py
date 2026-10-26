@@ -2,6 +2,7 @@ import asyncio
 import logging
 import mimetypes
 import time
+from datetime import datetime, timezone
 from uuid import uuid4
 from contextlib import asynccontextmanager, suppress
 from typing import AsyncIterator
@@ -100,6 +101,32 @@ async def _recover_file_jobs() -> None:
         )
 
 
+async def _recover_stale_meeting_jobs() -> None:
+    """Stop interrupted meetings from remaining in an endless loading state."""
+    now = datetime.now(timezone.utc)
+    active_record_ids = {
+        session.record.id
+        for session in meeting_registry.sessions.values()
+        if session.started and not session.ending
+    }
+    for record in await history.list_history():
+        if record.session_type != SessionType.meeting:
+            continue
+        if record.status not in (JobStatus.queued, JobStatus.processing):
+            continue
+        if record.id in active_record_ids:
+            continue
+        if record.status == JobStatus.queued and record.scheduled_start and record.scheduled_start > now:
+            continue
+        # A live meeting's in-memory audio worker cannot survive an API host
+        # restart. Preserve the record and any captured data, but expose a
+        # terminal state so the UI no longer spins forever.
+        record.status = JobStatus.failed
+        record.processing_stage = None
+        record.error = "Meeting was interrupted before it finished; captured data was preserved."
+        await history.save_record(record)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.diarization_ready = False
@@ -109,6 +136,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await _recover_interrupted_live_jobs()
     await _recover_file_jobs()
     await meeting_registry.load_pending()
+    await _recover_stale_meeting_jobs()
     yield
     if not preload_task.done():
         preload_task.cancel()
