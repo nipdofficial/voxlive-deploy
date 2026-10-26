@@ -88,10 +88,12 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
   }, [roomCode]);
 
   useEffect(() => {
-    if (!startedAt) return;
-    const timer = setInterval(() => setElapsed((Date.now() - startedAt) / 1000), 250);
+    if (!startedAt || status === "ended" || status === "left") return;
+    const updateElapsed = () => setElapsed((Date.now() - startedAt) / 1000);
+    updateElapsed();
+    const timer = setInterval(updateElapsed, 250);
     return () => clearInterval(timer);
-  }, [startedAt]);
+  }, [startedAt, status]);
 
   useEffect(() => () => { void client?.disconnect(); }, [client]);
 
