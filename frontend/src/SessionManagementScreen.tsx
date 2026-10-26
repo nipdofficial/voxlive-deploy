@@ -93,7 +93,9 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
   }, [authToken]);
 
   const downloadTranscript = async (record: TranscriptRecord) => {
-    const contents = record.segments.map((segment) => `${segment.speaker || "Speaker"}: ${segment.translated_text || segment.text}`).join("\n");
+    const contents = record.segments.length
+      ? record.segments.map((segment) => `${segment.speaker || "Speaker"}: ${segment.translated_text || segment.text}`).join("\n")
+      : record.transcript.trim();
     if (!contents.trim()) return;
     const filename = `${record.title.replace(/[^a-z0-9]+/gi, "_") || "voxlive_session"}.txt`;
     if (Platform.OS === "web") {
@@ -506,7 +508,7 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
         })}
         {!savedUpcomingSessions.length && (!activeSession || activeStatus === "live" || activeStatus === "ended") ? <View style={styles.emptyState}><Feather name="calendar" size={18} color="#70697D" /><Text style={styles.emptySession}>No upcoming sessions scheduled</Text></View> : null}
         <View style={[styles.sectionHeading, { marginTop: 24 }]}><View style={[styles.sectionDot, { backgroundColor: "#F3C969" }]} /><Text style={styles.sectionTitle}>PAST SESSIONS</Text><Text style={styles.sectionCount}>{completedSessions.length}</Text></View>
-        {completedSessions.length ? completedSessions.map((record) => <View key={record.id} style={styles.sessionListRow}><View style={styles.sessionRowIcon}><Feather name="file-text" size={16} color="#A78BFA" /></View><View style={{ flex: 1 }}><Text numberOfLines={1} style={styles.sessionTitle}>{record.title}</Text><Text style={styles.sessionCodeLabel}>{record.language} · {record.status} · {new Date(record.created_at).toLocaleDateString()}</Text></View><Pressable onPress={() => void downloadTranscript(record)} disabled={!record.segments.length} style={[styles.downloadButton, !record.segments.length && { opacity: 0.45 }]}><Feather name="download" size={15} color="#CDBDFF" /><Text style={styles.downloadText}>TXT</Text></Pressable></View>) : <View style={styles.emptyState}><Feather name="archive" size={18} color="#70697D" /><Text style={styles.emptySession}>Completed sessions will appear here</Text></View>}
+        {completedSessions.length ? completedSessions.map((record) => { const hasTranscript = Boolean(record.segments.length || record.transcript.trim()); return <View key={record.id} style={styles.sessionListRow}><View style={styles.sessionRowIcon}><Feather name="file-text" size={16} color="#A78BFA" /></View><View style={{ flex: 1 }}><Text numberOfLines={1} style={styles.sessionTitle}>{record.title}</Text><Text style={styles.sessionCodeLabel}>{record.language} · {record.status} · {new Date(record.created_at).toLocaleDateString()}</Text></View><Pressable onPress={() => void downloadTranscript(record)} disabled={!hasTranscript} style={[styles.downloadButton, !hasTranscript && { opacity: 0.45 }]}><Feather name="download" size={15} color="#CDBDFF" /><Text style={styles.downloadText}>TXT</Text></Pressable></View>; }) : <View style={styles.emptyState}><Feather name="archive" size={18} color="#70697D" /><Text style={styles.emptySession}>Completed sessions will appear here</Text></View>}
       </View>
     </ScrollView>
   );

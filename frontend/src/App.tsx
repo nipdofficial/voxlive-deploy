@@ -1576,7 +1576,7 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
                     {historySearch ? <Pressable accessibilityRole="button" accessibilityLabel="Clear search" hitSlop={8} onPress={() => setHistorySearch("")} style={styles.historySearchReset}><Feather name="x" size={14} color="#8F8A9E" /></Pressable> : null}
                   </View>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.historyFilterPills}>
-                    {(["All", "Sinhala", "Tamil", "English", "Mixed"] as const).map((item) => <Pressable key={item} onPress={() => setHistoryLanguage(item)} style={[styles.historyFilterPill, historyLanguage === item && styles.historyFilterPillActive]}><Text style={[styles.historyFilterText, historyLanguage === item && styles.historyFilterTextActive]}>{item}</Text></Pressable>)}
+                    {(["All", "Sinhala", "Mixed"] as const).map((item) => <Pressable key={item} onPress={() => setHistoryLanguage(item)} style={[styles.historyFilterPill, historyLanguage === item && styles.historyFilterPillActive]}><Text style={[styles.historyFilterText, historyLanguage === item && styles.historyFilterTextActive]}>{item}</Text></Pressable>)}
                   </ScrollView>
                 </View>
                 <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={isWide} style={[styles.historyResultsScroll, isWide && { maxHeight: Math.max(460, height - 330) }]} contentContainerStyle={styles.historyResultsContent}>
