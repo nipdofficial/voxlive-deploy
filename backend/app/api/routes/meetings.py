@@ -69,6 +69,8 @@ def _session_info(session) -> SessionInfo:
         created_at=session.created_at,
         scheduled_start=session.scheduled_start,
         scheduled_end=session.scheduled_end,
+        started_at=session.record.started_at,
+        ended_at=session.record.ended_at,
         speaker_name=session.record.participants[0].display_name if session.record.participants else None,
         status=session.status,
     )

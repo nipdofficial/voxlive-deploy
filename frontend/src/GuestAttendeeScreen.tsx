@@ -25,6 +25,14 @@ function formatTime(seconds: number) {
   return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
 }
 
+function formatSessionDate(value?: string | null) {
+  if (!value) return "—";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime())
+    ? "—"
+    : date.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+}
+
 function sameLiveSegment(left: Segment, right: Segment) {
   if (left.segment_id && right.segment_id) return left.segment_id === right.segment_id;
   return left.participant_identity === right.participant_identity
@@ -243,9 +251,14 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
         </View>
         <LinearGradient colors={["#30245B", "#1A1724", "#18161C"]} start={[0, 0]} end={[1, 1]} style={styles.hero}>
           <View style={styles.heroTopline}><View style={styles.livePill}><View style={[styles.liveDot, (joined || status === "ready") && styles.liveDotActive]} /><Text style={styles.livePillText}>{joined ? "LIVE NOW" : status === "ended" ? "ENDED" : status === "upcoming" ? "UPCOMING" : "READY TO JOIN"}</Text></View><Text style={styles.roomCode}>ROOM {roomCode}</Text></View>
-          <Text style={styles.eyebrow}>YOU’RE JOINING</Text>
+          <Text style={styles.eyebrow}>{status === "ended" ? "SESSION DETAILS" : "YOU’RE JOINING"}</Text>
           <Text style={styles.title}>{info?.title ?? "Live session"}</Text>
           {info?.speaker_name ? <Text style={styles.speakerLabel}><Feather name="user" size={12} color="#CDBDFF" />  Hosted by {info.speaker_name}</Text> : null}
+          {status === "ended" ? <View style={styles.sessionTimes}>
+            <View style={styles.sessionTimeItem}><Text style={styles.sessionTimeLabel}>STARTED</Text><Text style={styles.sessionTimeValue}>{formatSessionDate(info?.started_at)}</Text></View>
+            <View style={styles.sessionTimeDivider} />
+            <View style={styles.sessionTimeItem}><Text style={styles.sessionTimeLabel}>ENDED</Text><Text style={styles.sessionTimeValue}>{formatSessionDate(info?.ended_at)}</Text></View>
+          </View> : null}
           <View style={styles.stats}>
             <View style={styles.stat}><Feather name="users" size={13} color="#CDBDFF" /><Text style={styles.statText}>{participants.length} connected</Text></View>
             <View style={styles.stat}><Feather name="clock" size={13} color="#CDBDFF" /><Text style={styles.statText}>{formatTime(elapsed)}</Text></View>
@@ -365,6 +378,11 @@ const createStyles = () => StyleSheet.create({
   title: { color: "#F5F2FA", fontFamily: "DMSans_700Bold", fontSize: 28, marginTop: 8 },
   subtitle: { color: "#ABA4B9", fontFamily: "DMSans_400Regular", fontSize: 12, marginTop: 6 },
   speakerLabel: { color: "#CDBDFF", fontFamily: "DMSans_600SemiBold", fontSize: 12, marginTop: 8, flexDirection: "row", alignItems: "center" },
+  sessionTimes: { flexDirection: "row", alignItems: "center", gap: 16, marginTop: 18, padding: 13, borderRadius: 13, backgroundColor: "rgba(159,122,234,0.14)", borderWidth: 1, borderColor: "rgba(159,122,234,0.25)" },
+  sessionTimeItem: { flex: 1 },
+  sessionTimeLabel: { color: "#AFA2D9", fontFamily: "DMSans_700Bold", fontSize: 8, letterSpacing: 1.3 },
+  sessionTimeValue: { color: "#F5F2FA", fontFamily: "DMSans_600SemiBold", fontSize: 11, marginTop: 5 },
+  sessionTimeDivider: { width: 1, height: 30, backgroundColor: "rgba(205,189,255,0.25)" },
   stats: { flexDirection: "row", flexWrap: "wrap", gap: 9, marginTop: 18 },
   stat: { flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: "rgba(159,122,234,0.16)", paddingHorizontal: 11, paddingVertical: 8, borderRadius: 11 },
   statText: { color: "#D8CDF8", fontFamily: "DMSans_700Bold", fontSize: 10 },

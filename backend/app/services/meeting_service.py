@@ -279,6 +279,7 @@ class MeetingSession:
             # speech could begin before the transcriber joined.
             self.started = True
             self.started_at = time.monotonic()
+            self.record.started_at = datetime.now(timezone.utc)
             self.ready_event.set()
             logger.info("meeting_transcriber_ready meeting_id=%s room=%s", self.record.id, self.room_name)
             self.record.status = JobStatus.processing
@@ -659,6 +660,7 @@ class MeetingSession:
         if self.ending:
             return
         self.ending = True
+        self.record.ended_at = datetime.now(timezone.utc)
         self.record.status = JobStatus.processing
         self.record.processing_stage = ProcessingStage.saving_audio
         await save_record(self.record)

@@ -62,6 +62,8 @@ export interface TranscriptRecord {
   error?: string | null;
   scheduled_start?: string | null;
   scheduled_end?: string | null;
+  started_at?: string | null;
+  ended_at?: string | null;
   created_at: string;
 }
 
@@ -90,6 +92,8 @@ export interface SessionInfo {
   created_at: string;
   scheduled_start?: string | null;
   scheduled_end?: string | null;
+  started_at?: string | null;
+  ended_at?: string | null;
   speaker_name?: string | null;
   status?: "upcoming" | "ready" | "live" | "ended";
 }

@@ -120,6 +120,8 @@ class TranscriptRecord(BaseModel):
     summary: TranscriptSummary | None = None
     summary_source_hash: str | None = None
     error: str | None = None
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -194,6 +196,8 @@ class SessionInfo(BaseModel):
     created_at: datetime
     scheduled_start: datetime | None = None
     scheduled_end: datetime | None = None
+    started_at: datetime | None = None
+    ended_at: datetime | None = None
     speaker_name: str | None = None
     status: str = "ready"
 
