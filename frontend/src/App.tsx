@@ -1356,6 +1356,8 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
       setBusy(false);
     } catch (error) {
       setBusy(false);
+      setStatus("upload failed");
+      setProcessingStage(null);
       Alert.alert("Upload failed", error instanceof Error ? error.message : "Unknown error");
     }
   };

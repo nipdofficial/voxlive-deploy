@@ -107,10 +107,17 @@ export async function submitAudio(
   title?: string,
 ): Promise<{ id: string; status: string }> {
   const form = new FormData();
-  if (browserFile) {
+  // Expo's web picker can expose a File placeholder before the URI has been
+  // materialised. Do not upload that empty placeholder; read the selected blob
+  // from the URI instead so the request cannot silently stall with no body.
+  if (browserFile && browserFile.size > 0) {
     form.append("file", browserFile, name);
   } else if (uri.startsWith("blob:")) {
-    form.append("file", await (await fetch(uri)).blob(), name);
+    const blobResponse = await fetch(uri);
+    if (!blobResponse.ok) throw new Error("The selected audio file could not be read");
+    const blob = await blobResponse.blob();
+    if (!blob.size) throw new Error("The selected audio file is empty");
+    form.append("file", blob, name);
   } else {
     // Expo's native fetch implementation serializes Blob-like values itself.
     // The legacy React Native `{ uri, name, type }` object is deliberately not
@@ -128,7 +135,26 @@ export async function submitAudio(
     form.append("duration_seconds", String(durationSeconds));
   }
   form.append("title", title?.trim() || `${sessionType} • ${new Date().toLocaleString()}`);
-  const response = await fetch(`${API_URL}/transcribe`, { method: "POST", body: form });
+  // A stalled multipart request used to leave the primary button in
+  // "uploading" forever. Keep enough time for a large MP3 on mobile, but
+  // always return control to the UI with a retryable error.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 180_000);
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}/transcribe`, {
+      method: "POST",
+      body: form,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("Upload timed out after 3 minutes. Check the connection and try again.");
+    }
+    throw new Error(error instanceof Error ? error.message : "Could not upload the audio file");
+  } finally {
+    clearTimeout(timeout);
+  }
   if (!response.ok) throw new Error((await response.text()) || "Upload failed");
   return response.json();
 }
