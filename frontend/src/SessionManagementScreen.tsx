@@ -19,7 +19,7 @@ import { File, Paths } from "expo-file-system";
 import { LinearGradient } from "expo-linear-gradient";
 
 import { createMeeting, deleteManagedMeeting, getManagedMeetingHistory, getManagedMeetings, getSessionInfo, getSessionQrUrl, resumeOrganizerMeeting } from "./api";
-import type { Language, MeetingConnection, SessionInfo, TranscriptRecord } from "./types";
+import type { Language, MeetingConnection, SessionInfo, SessionType, TranscriptRecord } from "./types";
 import { SchedulePicker, todayLocal } from "./SchedulePicker";
 
 async function buildJoinQr(roomCode: string): Promise<string> {
@@ -30,8 +30,8 @@ async function buildJoinQr(roomCode: string): Promise<string> {
 }
 
 interface SessionManagementScreenProps {
-  onOpenCreatedSession: (connection: MeetingConnection, title: string) => Promise<void>;
-  onStartCreatedSession: (connection: MeetingConnection, title: string) => Promise<void>;
+  onOpenCreatedSession: (connection: MeetingConnection, title: string, mode?: Exclude<SessionType, "Meeting">) => Promise<void>;
+  onStartCreatedSession: (connection: MeetingConnection, title: string, mode?: Exclude<SessionType, "Meeting">) => Promise<void>;
   isDark: boolean;
   authToken: string;
 }
@@ -46,6 +46,7 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
   const [maxParticipants, setMaxParticipants] = useState("50");
   const [language, setLanguage] = useState<Language>("Mixed");
   const [preferredSpeakerLanguage, setPreferredSpeakerLanguage] = useState<Language>("Sinhala");
+  const [startMode, setStartMode] = useState<Exclude<SessionType, "Meeting">>("Live");
   const [scheduleMode, setScheduleMode] = useState<"now" | "scheduled">("now");
   const [startDate, setStartDate] = useState("");
   const [startTime, setStartTime] = useState("");
@@ -57,6 +58,7 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
   const [activeSession, setActiveSession] = useState<{
     code: string;
     title: string;
+    mode: Exclude<SessionType, "Meeting">;
     qrUrl: string;
     connection: MeetingConnection;
     joinUrl: string;
@@ -148,6 +150,7 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
         scheduledEnd,
         authToken,
         language === "Mixed" ? preferredSpeakerLanguage : undefined,
+        startMode,
       );
 
       const qrUrl = await buildJoinQr(conn.room_code);
@@ -158,6 +161,7 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
       setActiveSession({
         code: conn.room_code,
         title: sessionTitle.trim() || "Event Session",
+        mode: startMode,
         qrUrl,
         connection: conn,
         joinUrl: `${typeof window !== "undefined" ? window.location.origin : "https://d39saojiwcdxjz.cloudfront.net"}/?session=${conn.room_code}`,
@@ -198,15 +202,16 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
         setActiveSession({
           code: session.room_code,
           title: session.title,
+          mode: session.start_mode ?? "Live",
           qrUrl: await buildJoinQr(session.room_code),
           connection,
           joinUrl: `${typeof window !== "undefined" ? window.location.origin : "https://d39saojiwcdxjz.cloudfront.net"}/?session=${session.room_code}`,
           info: session,
         });
       } else if (session.status === "live") {
-        await onOpenCreatedSession(connection, session.title);
+        await onOpenCreatedSession(connection, session.title, session.start_mode ?? "Live");
       } else {
-        await onStartCreatedSession(connection, session.title);
+        await onStartCreatedSession(connection, session.title, session.start_mode ?? "Live");
       }
     } catch (error) {
       Alert.alert("Could not open session", error instanceof Error ? error.message : "Please try again");
@@ -367,7 +372,7 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
                 else {
                   setStarting(true);
                   const action = activeStatus === "live" ? onOpenCreatedSession : onStartCreatedSession;
-                  void action(activeSession.connection, activeSession.title)
+                  void action(activeSession.connection, activeSession.title, activeSession.mode)
                     .catch((error) => Alert.alert("Could not open meeting", error instanceof Error ? error.message : "Please try again"))
                     .finally(() => setStarting(false));
                 }
@@ -378,7 +383,7 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
                 ? "Enter Organizer Room"
                 : waitingForSchedule && scheduledStartTime
                   ? `Configure upcoming session · starts ${new Date(scheduledStartTime).toLocaleString()}`
-                  : "Choose Live or Upload"}</Text>
+                  : `Continue with ${activeSession.mode}`}</Text>
             </Pressable> : <View style={styles.endedBanner}><Feather name="check-circle" size={17} color="#55D6A4" /><Text style={styles.endedBannerText}>Meeting ended. This room is closed.</Text></View>}
 
             <Pressable
@@ -401,6 +406,24 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
           /* Create Session Form */
           <View style={[styles.card, isWide && styles.cardWide]}>
             <Text style={styles.cardHeader}>Create New Event Session</Text>
+
+            <View style={styles.fieldGroup}>
+              <Text style={styles.label}>How would you like to begin?</Text>
+              <Text style={styles.hint}>Choose the workflow now. The selected mode will be saved with this session.</Text>
+              <View style={styles.startModeGrid}>
+                {([
+                  ["Record", "mic", "Capture a session"],
+                  ["Live", "radio", "Transcribe as you speak"],
+                  ["Upload", "upload-cloud", "Choose an audio file"],
+                ] as const).map(([mode, icon, hint]) => (
+                  <Pressable key={mode} onPress={() => setStartMode(mode)} style={[styles.startModeCard, startMode === mode && styles.startModeCardActive]}>
+                    <View style={[styles.startModeIcon, startMode === mode && styles.startModeIconActive]}><Feather name={icon} size={18} color={startMode === mode ? "white" : "#9A95A8"} /></View>
+                    <Text style={[styles.startModeTitle, startMode === mode && styles.startModeTitleActive]}>{mode}</Text>
+                    <Text style={styles.startModeHint}>{hint}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
 
             <View style={styles.fieldGroup}>
               <Text style={styles.label}>Organizer Display Name</Text>
@@ -626,6 +649,14 @@ const getStyles = (isDark: boolean) =>
     fieldGroup: {
       marginBottom: 18,
     },
+    startModeGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 12 },
+    startModeCard: { flex: 1, minWidth: 170, minHeight: 112, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)", backgroundColor: isDark ? "#17131F" : "#F8F6FC" },
+    startModeCardActive: { borderColor: "#8067CE", backgroundColor: isDark ? "#2A2340" : "#EEE8FF" },
+    startModeIcon: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: isDark ? "#272231" : "#E9E4F4", marginBottom: 10 },
+    startModeIconActive: { backgroundColor: "#755BD0" },
+    startModeTitle: { color: isDark ? "#E3DFF0" : "#332B44", fontSize: 14, fontWeight: "700" },
+    startModeTitleActive: { color: isDark ? "white" : "#4F3A91" },
+    startModeHint: { color: isDark ? "#958EA4" : "#71697D", fontSize: 11, marginTop: 5 },
     scheduleFields: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 12 },
     label: {
       fontSize: 13,

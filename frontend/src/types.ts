@@ -78,6 +78,7 @@ export interface MeetingConnection {
   host_secret?: string | null;
   language?: Language;
   preferred_speaker_language?: Language | null;
+  start_mode?: Exclude<SessionType, "Meeting">;
   segments?: Segment[];
 }
 
@@ -87,6 +88,7 @@ export interface SessionInfo {
   title: string;
   language: Language;
   preferred_speaker_language?: Language | null;
+  start_mode?: Exclude<SessionType, "Meeting">;
   max_participants: number;
   current_participants: number;
   is_active: boolean;

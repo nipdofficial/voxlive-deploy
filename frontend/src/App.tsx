@@ -1518,7 +1518,7 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
         <SessionManagementScreen
           isDark={isDark}
           authToken={authToken ?? ""}
-          onOpenCreatedSession={async (connection, title) => {
+          onOpenCreatedSession={async (connection, title, mode = "Live") => {
             await prepareMeetingMicrophone();
             setCurrentRecordId(null);
             setProcessingStage(null);
@@ -1528,7 +1528,7 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
             setMeetingName(connection.display_name);
             setMeetingTitle(title);
             setLanguage(connection.language ?? "Mixed");
-            setSessionType("Meeting");
+            setSessionType(mode);
             setTab("new");
             setMeetingConnection(connection);
             setMeetingParticipants([]);
@@ -1538,7 +1538,7 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
             setBusy(false);
             await connectToMeeting(connection, title);
           }}
-          onStartCreatedSession={async (connection, title) => {
+          onStartCreatedSession={async (connection, title, mode = "Live") => {
             setCurrentRecordId(null);
             setProcessingStage(null);
             setDuration(0);
@@ -1549,7 +1549,7 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
             setLanguage(connection.language ?? "Mixed");
             // Creating a QR room must not implicitly start microphone capture.
             // Stage the organizer in the ready screen so Record, Live, or Upload can be chosen.
-            setSessionType("Live");
+            setSessionType(mode);
             setTab("new");
             setMeetingConnection(connection);
             setMeetingParticipants([]);

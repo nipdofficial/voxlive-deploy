@@ -106,6 +106,7 @@ class TranscriptRecord(BaseModel):
     language: Language
     preferred_speaker_language: Language | None = None
     session_type: SessionType
+    start_mode: SessionType = SessionType.live
     diarization: bool = False
     status: JobStatus = JobStatus.queued
     processing_stage: ProcessingStage | None = None
@@ -156,9 +157,12 @@ class MeetingCreate(BaseModel):
     max_participants: int = Field(default=0, ge=0, description="0 = unlimited")
     scheduled_start: datetime | None = None
     scheduled_end: datetime | None = None
+    start_mode: SessionType = SessionType.live
 
     @model_validator(mode="after")
     def validate_schedule(self) -> "MeetingCreate":
+        if self.start_mode == SessionType.meeting:
+            raise ValueError("start_mode must be Record, Live, or Upload")
         if self.scheduled_start and self.scheduled_start.tzinfo is None:
             raise ValueError("scheduled_start must include a timezone")
         if self.scheduled_end and self.scheduled_end.tzinfo is None:
@@ -184,6 +188,7 @@ class MeetingConnection(BaseModel):
     host_secret: str | None = None
     language: Language | None = None
     preferred_speaker_language: Language | None = None
+    start_mode: SessionType = SessionType.live
     # Finalized canonical segments allow a late attendee to catch up before
     # receiving new LiveKit data events.
     segments: list[TranscriptSegment] = Field(default_factory=list)
@@ -195,6 +200,7 @@ class SessionInfo(BaseModel):
     title: str
     language: Language
     preferred_speaker_language: Language | None = None
+    start_mode: SessionType = SessionType.live
     max_participants: int
     current_participants: int
     is_active: bool

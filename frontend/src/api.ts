@@ -153,6 +153,7 @@ export function createMeeting(
   scheduledEnd?: string,
   token?: string,
   preferredSpeakerLanguage?: Language,
+  startMode: Exclude<SessionType, "Meeting"> = "Live",
 ): Promise<MeetingConnection> {
   return meetingRequest("/meetings", {
     display_name: displayName,
@@ -163,6 +164,7 @@ export function createMeeting(
     scheduled_start: scheduledStart || null,
     scheduled_end: scheduledEnd || null,
     preferred_speaker_language: preferredSpeakerLanguage || null,
+    start_mode: startMode,
   }, token);
 }
 
