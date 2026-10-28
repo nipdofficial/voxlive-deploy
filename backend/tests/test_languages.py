@@ -45,7 +45,7 @@ def test_native_script_segments_are_not_reclassified_as_english() -> None:
     assert [item.detected_language for item in result] == [
         SpokenLanguage.tamil,
         SpokenLanguage.sinhala,
-        SpokenLanguage.unknown,
+        "Hindi",
     ]
 
 

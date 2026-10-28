@@ -32,6 +32,7 @@ from app.services.audio_service import (
 from app.services.diarization_service import diarize_file, merge_transcript_and_speakers
 from app.services.gemini_service import (
     GeminiService,
+    detected_language_label,
     detect_script_language,
     has_expected_script,
 )
@@ -117,14 +118,14 @@ def _live_detected_language(
     """Prefer the returned script when the API's language tag disagrees."""
     script_language = detect_script_language(text)
     if script_language != SpokenLanguage.unknown:
-        return script_language
+        return script_language.value
     if requested and requested != Language.mixed:
         return {
             Language.sinhala: SpokenLanguage.sinhala,
             Language.tamil: SpokenLanguage.tamil,
             Language.english: SpokenLanguage.english,
         }.get(requested, _live_language(value) or SpokenLanguage.unknown)
-    return _live_language(value) or SpokenLanguage.unknown.value
+    return detected_language_label(text, _live_language(value))
 
 
 def _seconds(value: str | None) -> float | None:
