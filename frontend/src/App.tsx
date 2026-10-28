@@ -78,12 +78,12 @@ function sameLiveSegment(left: Segment, right: Segment) {
 }
 
 function sortLiveSegments(segments: Segment[]): Segment[] {
-  return [...segments].sort((left, right) => (right.sequence ?? -1) - (left.sequence ?? -1) || right.start - left.start || right.end - left.end);
+  return [...segments].sort((left, right) => (left.sequence ?? Number.MAX_SAFE_INTEGER) - (right.sequence ?? Number.MAX_SAFE_INTEGER) || left.start - right.start || left.end - right.end);
 }
 
 function upsertLiveSegment(current: Segment[], next: Segment): Segment[] {
   const existing = current.findIndex((item) => sameLiveSegment(item, next));
-  if (existing < 0) return sortLiveSegments([next, ...current]);
+  if (existing < 0) return sortLiveSegments([...current, next]);
   const updated = [...current];
   updated[existing] = { ...updated[existing], ...next };
   return sortLiveSegments(updated);
@@ -851,7 +851,7 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
       setStatus(record.status);
       setProcessingStage(record.processing_stage ?? null);
       setDuration((current) => record.duration_seconds ?? current);
-      setSegments(record.segments);
+      setSegments(sortSegments(record.segments));
     }
     if (record.status === "completed" || record.status === "failed") {
       setTrackedJobIds((current) => current.filter((id) => id !== record.id));

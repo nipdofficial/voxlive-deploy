@@ -40,12 +40,12 @@ function sameLiveSegment(left: Segment, right: Segment) {
 }
 
 function sortLiveSegments(items: Segment[]) {
-  return [...items].sort((left, right) => (right.sequence ?? -1) - (left.sequence ?? -1) || right.start - left.start || right.end - left.end);
+  return [...items].sort((left, right) => (left.sequence ?? Number.MAX_SAFE_INTEGER) - (right.sequence ?? Number.MAX_SAFE_INTEGER) || left.start - right.start || left.end - right.end);
 }
 
 function upsertLiveSegment(current: Segment[], next: Segment) {
   const index = current.findIndex((item) => sameLiveSegment(item, next));
-  if (index < 0) return sortLiveSegments([next, ...current]);
+  if (index < 0) return sortLiveSegments([...current, next]);
   const updated = [...current];
   updated[index] = { ...updated[index], ...next };
   return sortLiveSegments(updated);
@@ -154,7 +154,7 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
           setClient(null);
           const record = await getTranscript(session.meeting_id).catch(() => null);
           if (record?.error) setError(record.error);
-          if (record?.segments.length) setSegments([...record.segments].sort((left, right) => right.start - left.start));
+          if (record?.segments.length) setSegments([...record.segments].sort((left, right) => left.start - right.start || left.end - right.end));
         }
       }).catch(() => undefined);
     }, 4000);
@@ -220,7 +220,7 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
   const leave = async () => {
     if (info?.meeting_id) {
       const record = await getTranscript(info.meeting_id).catch(() => null);
-      if (record?.segments.length) setSegments([...record.segments].sort((left, right) => right.start - left.start));
+      if (record?.segments.length) setSegments([...record.segments].sort((left, right) => left.start - right.start || left.end - right.end));
     }
     await client?.disconnect();
     setClient(null);
