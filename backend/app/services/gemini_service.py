@@ -49,11 +49,11 @@ LANGUAGE_GUIDANCE = {
         "Set detected_language from the audio, not from this instruction."
     ),
     Language.mixed: (
-        "The audio may switch between Sinhala, Tamil, and English. Transcribe all three, "
+        "The audio may contain any spoken language and may switch languages. Transcribe every clearly intelligible utterance, "
         "first identify the language actually spoken in each utterance from the audio, "
         "using pronunciation and phonetics rather than only guessing from the written script, "
-        "then preserve each in its native script and never translate. For every utterance set "
-        "detected_language to Sinhala, Tamil, English, or Unknown. Split an utterance when "
+        "then preserve each in its native script and never translate the source. For every utterance set "
+        "detected_language to the best supported label or Unknown. Split an utterance when "
         "the spoken language changes. English speech must remain in Latin script; do not "
         "write Sinhala or Tamil speech as English transliteration or phonetic Latin text. "
         "Sinhala speech must remain "
@@ -140,14 +140,8 @@ def normalize_language_segments(
     for segment in segments:
         detected = detect_script_language(segment.text)
         reported = segment.detected_language
-        if (
-            requested == Language.mixed
-            and detected == SpokenLanguage.unknown
-            and any(char.isalpha() for char in segment.text)
-        ):
-            # Mixed mode is limited to Sinhala, Tamil and English. Do not
-            # publish confidently recognized text in an unrelated script.
-            continue
+        # Mixed mode accepts any language. Explicit single-language modes
+        # retain their existing strict script validation below.
         if expected and detected not in (expected, SpokenLanguage.unknown):
             continue
         if expected and reported not in (None, expected):
@@ -282,6 +276,7 @@ class GeminiService:
         verify_mixed_language: bool = True,
         use_structured_mixed_model: bool = True,
         _retry_language: bool = True,
+        preferred_speaker_language: Language | None = None,
     ) -> list[TranscriptSegment]:
         speaker_guidance = (
             "Assign stable anonymous labels SPEAKER_00, SPEAKER_01, and so on to "
@@ -289,9 +284,18 @@ class GeminiService:
             if include_speakers
             else "Do not identify or label speakers; leave speaker null."
         )
+        primary_guidance = ""
+        if language == Language.mixed and preferred_speaker_language in {
+            Language.sinhala, Language.tamil, Language.english
+        }:
+            primary_guidance = (
+                f" The organizer selected {preferred_speaker_language.value} as the main speaker language. "
+                "Use it as the strongest recognition prior for ambiguous pronunciation and short utterances, "
+                "but continue listening for and transcribing every other spoken language accurately."
+            )
         prompt = (
             "Transcribe only clearly intelligible speech in this audio, verbatim. "
-            f"{LANGUAGE_GUIDANCE[language]} "
+            f"{LANGUAGE_GUIDANCE[language]}{primary_guidance} "
             "Never guess, infer, or invent words from silence, noise, music, or unclear audio. "
             "If there is no clearly intelligible speech, return an empty segments list. "
             "Return short timestamped utterances and split at pauses or speaker changes. "
@@ -420,6 +424,7 @@ class GeminiService:
                 audio_duration_seconds=audio_duration_seconds,
                 request_timeout_seconds=request_timeout_seconds,
                 translate_to=translate_to,
+                preferred_speaker_language=preferred_speaker_language,
                 verify_mixed_language=False,
                 use_structured_mixed_model=False,
                 _retry_language=False,
@@ -453,6 +458,7 @@ class GeminiService:
                     audio_duration_seconds=audio_duration_seconds,
                     request_timeout_seconds=request_timeout_seconds,
                     translate_to=translate_to,
+                    preferred_speaker_language=preferred_speaker_language,
                     verify_mixed_language=verify_mixed_language,
                     use_structured_mixed_model=use_structured_mixed_model,
                     _retry_language=False,

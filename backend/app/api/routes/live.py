@@ -64,13 +64,14 @@ def _live_language(value: str | None) -> SpokenLanguage | None:
     return SpokenLanguage.unknown
 
 
-def _live_language_codes(language: Language) -> list[str]:
+def _live_language_codes(language: Language, preferred: Language | None = None) -> list[str]:
     """Return BCP-47 hints, constrained to VoxLive's supported input modes."""
     return {
         Language.sinhala: ["si-LK"],
         Language.tamil: ["ta-IN"],
         Language.english: ["en-US"],
-        Language.mixed: ["si-LK", "ta-IN", "en-US"],
+        # Leave Mix mode unrestricted so Gemini can detect any language.
+        Language.mixed: [],
     }[language]
 
 
@@ -82,12 +83,9 @@ def _live_text_matches_mode(text: str, language: Language) -> bool:
     }.get(language)
     detected = detect_script_language(text)
     if language == Language.mixed:
-        # Mixed mode is intentionally limited to Sinhala, Tamil and English.
-        return detected in {
-            SpokenLanguage.sinhala,
-            SpokenLanguage.tamil,
-            SpokenLanguage.english,
-        } or not any(char.isalpha() for char in text)
+        # Mixed mode accepts all spoken languages. Gemini still labels
+        # Sinhala/Tamil/English deterministically when scripts are clear.
+        return True
     if expected is None:
         return True
     if detected == SpokenLanguage.unknown:
@@ -262,6 +260,7 @@ async def _transcribe_live_chunk(
         # does not add a second network round trip to every live chunk.
         verify_mixed_language=False,
         use_structured_mixed_model=True,
+        preferred_speaker_language=record.preferred_speaker_language,
     )
     return [
         segment
@@ -312,6 +311,7 @@ async def _finalize_live(record: TranscriptRecord, path: Path) -> None:
                         model=settings.gemini_batch_model,
                         include_speakers=record.diarization,
                         audio_duration_seconds=record.duration_seconds,
+                        preferred_speaker_language=record.preferred_speaker_language,
                     )
                     # A provider can validly return an empty result for a
                     # short/noisy full pass. Never erase useful live captions
@@ -407,6 +407,7 @@ async def live_transcription(websocket: WebSocket) -> None:
         record = TranscriptRecord(
             title=start.title,
             language=start.language,
+            preferred_speaker_language=start.preferred_speaker_language,
             session_type=start.session_type,
             diarization=start.diarization,
             status=JobStatus.processing,
@@ -426,16 +427,16 @@ async def live_transcription(websocket: WebSocket) -> None:
         realtime_translation = (
             start.session_type == SessionType.live and start.realtime_translation
         )
-        live_language_codes = _live_language_codes(start.language)
+        live_language_codes = _live_language_codes(start.language, start.preferred_speaker_language)
+        transcription_config = {"mode": "VERBATIM"}
+        if live_language_codes:
+            transcription_config["language_codes"] = live_language_codes
         try:
             live_connect = gemini.client.aio.live.connect(
                 model=settings.gemini_live_model,
                 config=types.LiveConnectConfig(
                     response_modalities=["TEXT"],
-                    input_audio_transcription=types.AudioTranscriptionConfig(
-                        language_codes=live_language_codes,
-                        mode="VERBATIM",
-                    ),
+                    input_audio_transcription=types.AudioTranscriptionConfig(**transcription_config),
                 ),
             )
             live_session = await live_connect.__aenter__()

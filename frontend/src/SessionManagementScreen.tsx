@@ -45,6 +45,7 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
   const [sessionTitle, setSessionTitle] = useState("");
   const [maxParticipants, setMaxParticipants] = useState("50");
   const [language, setLanguage] = useState<Language>("Mixed");
+  const [preferredSpeakerLanguage, setPreferredSpeakerLanguage] = useState<Language>("Sinhala");
   const [scheduleMode, setScheduleMode] = useState<"now" | "scheduled">("now");
   const [startDate, setStartDate] = useState("");
   const [startTime, setStartTime] = useState("");
@@ -146,6 +147,7 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
         scheduledStart,
         scheduledEnd,
         authToken,
+        language === "Mixed" ? preferredSpeakerLanguage : undefined,
       );
 
       const qrUrl = await buildJoinQr(conn.room_code);
@@ -428,6 +430,13 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
                 {(["Sinhala", "Mixed"] as Language[]).map((option) => <Pressable key={option} onPress={() => setLanguage(option)} style={{ paddingHorizontal: 11, paddingVertical: 8, borderRadius: 9, borderWidth: 1, borderColor: language === option ? "#8067CE" : "rgba(255,255,255,0.12)", backgroundColor: language === option ? "#755BD0" : "rgba(255,255,255,0.05)" }}><Text style={{ color: language === option ? "white" : "#B8B1C8", fontSize: 11, fontWeight: "600" }}>{option}</Text></Pressable>)}
               </View>
               <Text style={styles.hint}>Choose one language for better live recognition, or use Mixed for automatic detection.</Text>
+              {language === "Mixed" ? <>
+                <Text style={[styles.label, { marginTop: 14 }]}>Main speaker language</Text>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                  {(["Sinhala", "Tamil", "English"] as Language[]).map((option) => <Pressable key={option} onPress={() => setPreferredSpeakerLanguage(option)} style={{ paddingHorizontal: 11, paddingVertical: 8, borderRadius: 9, borderWidth: 1, borderColor: preferredSpeakerLanguage === option ? "#8067CE" : "rgba(255,255,255,0.12)", backgroundColor: preferredSpeakerLanguage === option ? "#755BD0" : "rgba(255,255,255,0.05)" }}><Text style={{ color: preferredSpeakerLanguage === option ? "white" : "#B8B1C8", fontSize: 11, fontWeight: "600" }}>{option}</Text></Pressable>)}
+                </View>
+                <Text style={styles.hint}>Gemini prioritizes this language while still detecting every language spoken and translating every line to Tamil.</Text>
+              </> : null}
             </View>
 
             <View style={styles.fieldGroup}>

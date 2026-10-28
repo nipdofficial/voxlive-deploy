@@ -444,6 +444,7 @@ class MeetingSession:
                     audio_duration_seconds=len(chunk) / (SAMPLE_RATE * 2),
                     request_timeout_seconds=settings.gemini_live_timeout_seconds,
                     translate_to=settings.target_language,
+                    preferred_speaker_language=self.record.preferred_speaker_language,
                     verify_mixed_language=False,
                     use_structured_mixed_model=False,
                 )
@@ -775,6 +776,7 @@ class MeetingSession:
                     include_speakers=state.shared_mic,
                     audio_duration_seconds=state.duration,
                     translate_to=settings.target_language,
+                    preferred_speaker_language=self.record.preferred_speaker_language,
                 )
             if state.shared_mic and final:
                 self.record.processing_stage = ProcessingStage.diarizing

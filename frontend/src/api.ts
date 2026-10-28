@@ -152,6 +152,7 @@ export function createMeeting(
   scheduledStart?: string,
   scheduledEnd?: string,
   token?: string,
+  preferredSpeakerLanguage?: Language,
 ): Promise<MeetingConnection> {
   return meetingRequest("/meetings", {
     display_name: displayName,
@@ -161,6 +162,7 @@ export function createMeeting(
     max_participants: maxParticipants,
     scheduled_start: scheduledStart || null,
     scheduled_end: scheduledEnd || null,
+    preferred_speaker_language: preferredSpeakerLanguage || null,
   }, token);
 }
 

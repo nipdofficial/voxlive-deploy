@@ -103,6 +103,7 @@ class TranscriptRecord(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
     title: str
     language: Language
+    preferred_speaker_language: Language | None = None
     session_type: SessionType
     diarization: bool = False
     status: JobStatus = JobStatus.queued
@@ -133,6 +134,7 @@ class JobAccepted(BaseModel):
 
 class LiveStart(BaseModel):
     language: Language
+    preferred_speaker_language: Language | None = None
     session_type: SessionType = SessionType.live
     diarization: bool = False
     realtime_translation: bool = True
@@ -147,6 +149,7 @@ class GeminiTranscript(BaseModel):
 class MeetingCreate(BaseModel):
     display_name: str = Field(min_length=1, max_length=80)
     language: Language
+    preferred_speaker_language: Language | None = None
     shared_mic: bool = False
     title: str = Field(default="Online meeting", min_length=1, max_length=200)
     max_participants: int = Field(default=0, ge=0, description="0 = unlimited")
@@ -179,6 +182,7 @@ class MeetingConnection(BaseModel):
     is_host: bool = False
     host_secret: str | None = None
     language: Language | None = None
+    preferred_speaker_language: Language | None = None
     # Finalized canonical segments allow a late attendee to catch up before
     # receiving new LiveKit data events.
     segments: list[TranscriptSegment] = Field(default_factory=list)
@@ -189,6 +193,7 @@ class SessionInfo(BaseModel):
     meeting_id: str
     title: str
     language: Language
+    preferred_speaker_language: Language | None = None
     max_participants: int
     current_participants: int
     is_active: bool

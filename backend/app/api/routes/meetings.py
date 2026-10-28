@@ -45,6 +45,7 @@ def _connection(session, participant, token: str, *, is_host: bool) -> MeetingCo
         is_host=is_host,
         host_secret=session.host_secret if is_host else None,
         language=session.language,
+        preferred_speaker_language=session.record.preferred_speaker_language,
         segments=sorted(
             (
                 segment
@@ -62,6 +63,7 @@ def _session_info(session) -> SessionInfo:
         meeting_id=session.record.id,
         title=session.title,
         language=session.language,
+        preferred_speaker_language=session.record.preferred_speaker_language,
         max_participants=session.max_participants,
         current_participants=session.participant_count,
         is_active=session.started and not session.ending,
@@ -91,6 +93,7 @@ async def create_meeting(
     record = TranscriptRecord(
         title=body.title,
         language=body.language,
+        preferred_speaker_language=body.preferred_speaker_language,
         session_type=SessionType.meeting,
         diarization=body.shared_mic,
         status=JobStatus.queued,
