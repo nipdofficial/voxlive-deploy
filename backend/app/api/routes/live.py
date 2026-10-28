@@ -695,19 +695,21 @@ async def live_transcription(websocket: WebSocket) -> None:
                     has_sustained_voice = voice_activity.feed(captured_chunk)
                     if has_sustained_voice:
                         last_voice_input_at = time.monotonic()
-                    # Do not let ambient audio reach Gemini while the temporal
-                    # speech gate is closed. Keep silence bytes so audio timing
-                    # remains aligned with the session clock.
+                    # Always retain the original timeline, but never send
+                    # silence/noise frames to Gemini. Sending zero-filled
+                    # frames still allows a generative live model to invent
+                    # captions during pauses.
                     live_chunk = (
                         _gate_live_pcm(captured_chunk, settings.live_voice_rms_threshold)
                         if has_sustained_voice
                         else bytes(len(captured_chunk))
                     )
                     raw_file.write(live_chunk)
-                    if queue.full():
-                        queue.get_nowait()
-                    queue.put_nowait((live_chunk, queued_preview_offset))
-                    queued_preview_offset += len(live_chunk) / (start.sample_rate * 2)
+                    if has_sustained_voice:
+                        if queue.full():
+                            queue.get_nowait()
+                        queue.put_nowait((live_chunk, queued_preview_offset))
+                    queued_preview_offset += len(captured_chunk) / (start.sample_rate * 2)
                     del pending[:chunk_bytes]
             elif message.get("text") == "stop":
                 stopped = True

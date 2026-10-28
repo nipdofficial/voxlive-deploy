@@ -55,7 +55,9 @@ class Settings(BaseSettings):
     # 16-bit PCM RMS below this level is treated as mic/room noise in live mode.
     live_voice_rms_threshold: float = 180.0
     # Live model output is only trusted shortly after the mic carried voice-level audio.
-    live_voice_activity_window_seconds: float = 4.0
+    # Gemini Live can emit speculative text after the speaker stops. Keep the
+    # acceptance window short so silence cannot become a new caption.
+    live_voice_activity_window_seconds: float = 2.0
     live_finalize_full_audio: bool = True
     max_live_minutes: float = 120.0
     max_upload_mb: int = 20
