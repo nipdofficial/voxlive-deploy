@@ -1126,7 +1126,9 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
     }, LIVE_CONNECTION_TIMEOUT_MS);
     const clearConnectionTimer = () => clearTimeout(connectionTimer);
     socket.onopen = () => {
-      socket.send(JSON.stringify({ language, session_type: sessionType, diarization, realtime_translation: sessionType === "Live", sample_rate: 16000, title: `${sessionType} • ${new Date().toLocaleString()}` }));
+      // Record keeps the complete high-quality final pass after Stop, but it
+      // also receives the same live source/translation previews as Live mode.
+      socket.send(JSON.stringify({ language, session_type: sessionType, diarization, realtime_translation: sessionType === "Live" || sessionType === "Record", sample_rate: 16000, title: `${sessionType} • ${new Date().toLocaleString()}` }));
     };
     socket.onmessage = (event) => {
       void (async () => {

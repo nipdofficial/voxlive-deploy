@@ -429,10 +429,12 @@ async def live_transcription(websocket: WebSocket) -> None:
 
         settings = get_settings()
         gemini = GeminiService()
-        # Only the Live mode may translate line by line. Enforce this on the
-        # backend so older clients cannot accidentally enable it for Record.
+        # Record mode also publishes live source/translation previews. It still
+        # runs the authoritative full-audio pass after Stop, so the final
+        # transcript is more complete than the low-latency preview.
         realtime_translation = (
-            start.session_type == SessionType.live and start.realtime_translation
+            start.session_type in (SessionType.live, SessionType.record)
+            and start.realtime_translation
         )
         live_language_codes = _live_language_codes(start.language, start.preferred_speaker_language)
         transcription_config = {"mode": "VERBATIM"}
