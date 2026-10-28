@@ -1662,7 +1662,7 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
           <View style={styles.pageIntro}>
             <Text style={styles.eyebrow}>NEW TRANSCRIPTION</Text>
             <TypewriterText text="Turn every voice into words." style={styles.heroTitle} />
-            <Text style={styles.heroCopy}>Fast, accurate transcription for every language, live.</Text>
+            <Text style={styles.heroCopy}>Fast, Accurate Transcription for Every Language—Live.</Text>
           </View>
           {meetingConnection?.is_host ? (
             <View style={styles.organizerSessionBar}>
