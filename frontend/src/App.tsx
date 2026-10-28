@@ -1432,9 +1432,9 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
   const currentExportRecord = liveMeetingRecord ?? history.find((record) => record.id === currentRecordId) ?? null;
   const organizerMeeting = sessionType === "Meeting";
   const organizerSessionSetup = Boolean(meetingConnection?.is_host && !active);
-  const availableSessionTypes = organizerSessionSetup
+  const availableSessionTypes = organizerMeeting
     ? SESSION_TYPES.filter((item) => item.value === "Record" || item.value === "Live" || item.value === "Upload")
-    : SESSION_TYPES.filter((item) => !(organizerMeeting && item.value === "Record"));
+    : SESSION_TYPES.filter((item) => item.value !== "Meeting");
   const filteredHistory = useMemo(() => {
     const needle = historySearch.trim().toLocaleLowerCase();
     return history.filter((record) => {
