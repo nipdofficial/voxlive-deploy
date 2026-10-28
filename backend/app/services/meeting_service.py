@@ -17,6 +17,7 @@ from app.models.schemas import (
     Language,
     MeetingParticipant,
     ProcessingStage,
+    SessionType,
     TranscriptRecord,
     TranscriptSegment,
 )
@@ -423,6 +424,9 @@ class MeetingSession:
     async def _transcribe_chunks(self, state: TrackState) -> None:
         gemini = GeminiService()
         settings = get_settings()
+        live_translation_enabled = (
+            self.record.start_mode != SessionType.record and settings.auto_translate
+        )
         while True:
             queued = await state.queue.get()
             if queued is None:
@@ -443,7 +447,7 @@ class MeetingSession:
                     model=settings.gemini_text_model,
                     audio_duration_seconds=len(chunk) / (SAMPLE_RATE * 2),
                     request_timeout_seconds=settings.gemini_live_timeout_seconds,
-                    translate_to=settings.target_language,
+                    translate_to=settings.target_language if live_translation_enabled else None,
                     preferred_speaker_language=self.record.preferred_speaker_language,
                     verify_mixed_language=False,
                     use_structured_mixed_model=False,
@@ -483,16 +487,17 @@ class MeetingSession:
                         segment.detected_language or "Unknown",
                     )
                 if published:
-                    complete = [item for item in published if item.is_final and item.translated_text]
-                    for item in complete:
-                        await self._broadcast_translation(item)
-                    pending_translation = [item for item in published if item not in complete]
-                    if pending_translation:
-                        translation_task = asyncio.create_task(
-                            self._translate_preview_segments(pending_translation)
-                        )
-                        self.translation_tasks.add(translation_task)
-                        translation_task.add_done_callback(self.translation_tasks.discard)
+                    if live_translation_enabled:
+                        complete = [item for item in published if item.is_final and item.translated_text]
+                        for item in complete:
+                            await self._broadcast_translation(item)
+                        pending_translation = [item for item in published if item not in complete]
+                        if pending_translation:
+                            translation_task = asyncio.create_task(
+                                self._translate_preview_segments(pending_translation)
+                            )
+                            self.translation_tasks.add(translation_task)
+                            translation_task.add_done_callback(self.translation_tasks.discard)
                 self.record.duration_seconds = max(
                     (track.duration for track in self.states.values()), default=0.0
                 )

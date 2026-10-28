@@ -429,11 +429,10 @@ async def live_transcription(websocket: WebSocket) -> None:
 
         settings = get_settings()
         gemini = GeminiService()
-        # Record mode also publishes live source/translation previews. It still
-        # runs the authoritative full-audio pass after Stop, so the final
-        # transcript is more complete than the low-latency preview.
+        # Record mode publishes live source captions only. Translation is
+        # added by the authoritative full-audio pass after Stop.
         realtime_translation = (
-            start.session_type in (SessionType.live, SessionType.record)
+            start.session_type == SessionType.live
             and start.realtime_translation
         )
         live_language_codes = _live_language_codes(start.language, start.preferred_speaker_language)
