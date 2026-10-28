@@ -304,6 +304,7 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
                     <View style={styles.lineBar} />
                     <View style={{ flex: 1 }}>
                       <Text style={styles.speaker}>{segment.speaker || "Speaker"}</Text>
+                      {segment.detected_language ? <Text style={styles.languageTag}>{segment.detected_language}</Text> : null}
                       {segment.translated_text ? <><Text style={styles.translation}>{segment.translated_text}</Text><Text style={styles.text}>{segment.text}</Text></> : <Text style={styles.text}>{segment.text}</Text>}
                     </View>
                   </View>
@@ -407,6 +408,7 @@ const createStyles = () => StyleSheet.create({
   transcriptMode: { flexDirection: "row", alignItems: "center", gap: 6 },
   live: { color: "#55D6A4", fontFamily: "DMSans_700Bold", fontSize: 10 },
   line: { flexDirection: "row", gap: 10 },
+  languageTag: { alignSelf: "flex-start", color: "#B9A7FF", backgroundColor: "rgba(185,167,255,0.12)", borderRadius: 7, paddingHorizontal: 6, paddingVertical: 2, fontSize: 9, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 5 },
   time: { width: 38, color: "#A39BAF", fontFamily: "DMSans_500Medium", fontSize: 10, paddingTop: 2 },
   lineBar: { width: 2, borderRadius: 2, backgroundColor: "#9F7AEA" },
   speaker: { color: "#D8CDF8", fontFamily: "DMSans_700Bold", fontSize: 9, marginBottom: 3, textTransform: "uppercase" },

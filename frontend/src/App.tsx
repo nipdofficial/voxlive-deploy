@@ -1689,7 +1689,7 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
                   <View style={styles.autoLanguageIcon}><Feather name="globe" size={19} color="#755BD0" /></View>
                   <View style={styles.autoLanguageBody}>
                     <Text style={styles.autoLanguageTitle}>{language === "Mixed" ? "Automatic detection" : language}</Text>
-                    <Text style={styles.autoLanguageHint}>{language === "Mixed" ? "Gemini will detect Sinhala, Tamil and English." : `Gemini will transcribe ${language} directly for better accuracy.`}</Text>
+                    <Text style={styles.autoLanguageHint}>{language === "Mixed" ? "Gemini will detect any spoken language and label each line." : `Gemini will transcribe ${language} directly for better accuracy.`}</Text>
                     <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 7, marginTop: 10 }}>
                       {(["Sinhala", "Mixed"] as Language[]).map((option) => <Pressable key={option} disabled={active || busy} onPress={() => setLanguage(option)} style={{ paddingHorizontal: 9, paddingVertical: 6, borderRadius: 9, borderWidth: 1, borderColor: language === option ? "#8067CE" : "rgba(255,255,255,0.12)", backgroundColor: language === option ? "#755BD0" : "rgba(255,255,255,0.05)" }}><Text style={{ color: language === option ? "white" : "#B8B1C8", fontSize: 10, fontWeight: "600" }}>{option}</Text></Pressable>)}
                     </View>

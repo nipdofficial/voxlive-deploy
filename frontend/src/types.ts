@@ -2,7 +2,7 @@ export type Language = "Sinhala" | "Tamil" | "English" | "Mixed";
 export type SessionType = "Record" | "Live" | "Upload" | "Meeting";
 export type JobStatus = "queued" | "processing" | "completed" | "failed";
 export type ProcessingStage = "recording" | "saving_audio" | "transcribing" | "diarizing";
-export type SpokenLanguage = "Sinhala" | "Tamil" | "English" | "Unknown";
+export type SpokenLanguage = string;
 
 export interface Segment {
   segment_id?: string | null;

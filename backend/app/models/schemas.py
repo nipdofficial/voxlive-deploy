@@ -50,7 +50,8 @@ class TranscriptSegment(BaseModel):
     end: float = Field(ge=0)
     text: str
     speaker: str | None = None
-    detected_language: SpokenLanguage | None = None
+    # Mix mode can identify languages beyond the three UI presets.
+    detected_language: str | None = None
     participant_identity: str | None = None
     uncertain: bool = False
     translated_text: str | None = None

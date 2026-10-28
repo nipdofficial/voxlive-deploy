@@ -28,9 +28,9 @@ class Settings(BaseSettings):
     # Gemini Live API uses a different model family from generateContent.
     # The transcribe-preview model is not accepted by the Live API and closes
     # the websocket with INVALID_ARGUMENT/1007.
-    # Vertex currently exposes Gemini 3.5 Transcribe Live for persistent ASR
-    # sessions; Gemini 3.8 Flash is used for batch/text generation below.
-    gemini_live_model: str = "gemini-3.5-transcribe-live"
+    # Gemini 3.8 Live provides low-latency multilingual transcription and
+    # automatic language switching for Mix mode.
+    gemini_live_model: str = "gemini-3.8-live"
     # Use the generally available multimodal Flash model for live speech.
     # The transcribe preview endpoint was returning RESOURCE_EXHAUSTED for
     # meeting chunks and required a second model call for Tamil translation.
@@ -83,8 +83,12 @@ class Settings(BaseSettings):
         """Keep deployment/environment overrides from selecting another target."""
         self.target_language = Language.tamil
         # Keep the persistent streaming connection on the supported live model.
-        if self.gemini_live_model != "gemini-3.5-transcribe-live":
-            self.gemini_live_model = "gemini-3.5-transcribe-live"
+        if self.gemini_live_model in {
+            "gemini-3.5-transcribe-live",
+            "gemini-3.5-transcribe-preview",
+            "gemini-live-2.5-flash-native-audio",
+        }:
+            self.gemini_live_model = "gemini-3.8-live"
         if "transcribe" in self.gemini_batch_model.lower() or self.gemini_batch_model in {
             "gemini-2.5-flash",
             "gemini-3.5-flash",

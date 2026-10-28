@@ -51,17 +51,23 @@ def _pcm_wav_bytes(pcm: bytes, sample_rate: int) -> bytes:
     return output.getvalue()
 
 
-def _live_language(value: str | None) -> SpokenLanguage | None:
+_LANGUAGE_NAMES = {
+    "ar": "Arabic", "bn": "Bengali", "de": "German", "es": "Spanish",
+    "fr": "French", "gu": "Gujarati", "hi": "Hindi", "id": "Indonesian",
+    "it": "Italian", "ja": "Japanese", "ko": "Korean", "ml": "Malayalam",
+    "mr": "Marathi", "ne": "Nepali", "pa": "Punjabi", "pt": "Portuguese",
+    "ru": "Russian", "si": "Sinhala", "ta": "Tamil", "te": "Telugu",
+    "th": "Thai", "tr": "Turkish", "ur": "Urdu", "vi": "Vietnamese",
+    "zh": "Chinese", "en": "English",
+}
+
+
+def _live_language(value: str | None) -> str | None:
     if not value:
         return None
-    normalized = value.casefold()
-    if normalized.startswith("si"):
-        return SpokenLanguage.sinhala
-    if normalized.startswith("ta"):
-        return SpokenLanguage.tamil
-    if normalized.startswith("en"):
-        return SpokenLanguage.english
-    return SpokenLanguage.unknown
+    normalized = value.strip().casefold()
+    code = normalized.split("-")[0].split("_")[0]
+    return _LANGUAGE_NAMES.get(code, value.strip())
 
 
 def _live_language_codes(language: Language, preferred: Language | None = None) -> list[str]:
@@ -107,7 +113,7 @@ def _has_recent_voice_activity(
 
 def _live_detected_language(
     value: str | None, text: str, requested: Language | None = None
-) -> SpokenLanguage:
+) -> str:
     """Prefer the returned script when the API's language tag disagrees."""
     script_language = detect_script_language(text)
     if script_language != SpokenLanguage.unknown:
@@ -118,7 +124,7 @@ def _live_detected_language(
             Language.tamil: SpokenLanguage.tamil,
             Language.english: SpokenLanguage.english,
         }.get(requested, _live_language(value) or SpokenLanguage.unknown)
-    return _live_language(value) or SpokenLanguage.unknown
+    return _live_language(value) or SpokenLanguage.unknown.value
 
 
 def _seconds(value: str | None) -> float | None:

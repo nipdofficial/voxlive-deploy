@@ -165,13 +165,14 @@ def test_live_chunk_requests_provisional_gemini_speakers(monkeypatch) -> None:
             "request_timeout_seconds": 12.0,
             "verify_mixed_language": False,
             "use_structured_mixed_model": True,
+                "preferred_speaker_language": None,
         }
     ]
 
 
 def test_live_language_hints_cover_only_supported_languages() -> None:
     assert live._live_language_codes(Language.sinhala) == ["si-LK"]
-    assert live._live_language_codes(Language.mixed) == ["si-LK", "ta-IN", "en-US"]
+    assert live._live_language_codes(Language.mixed) == []
 
 
 def test_live_noise_gate_silences_quiet_noise_and_preserves_speech() -> None:
@@ -314,7 +315,7 @@ def test_mixed_mode_only_accepts_sinhala_tamil_and_english_scripts() -> None:
     assert live._live_text_matches_mode("ආයුබෝවන්", Language.mixed)
     assert live._live_text_matches_mode("வணக்கம்", Language.mixed)
     assert live._live_text_matches_mode("hello there", Language.mixed)
-    assert not live._live_text_matches_mode("नमस्ते", Language.mixed)
+    assert live._live_text_matches_mode("नमस्ते", Language.mixed)
 
 
 def test_live_mono_language_rejects_transcription_in_wrong_script() -> None:
@@ -330,9 +331,9 @@ def test_live_mono_language_rejects_transcription_in_wrong_script() -> None:
 def test_default_live_model_is_supported_by_gemini_live_api() -> None:
     from app.core.config import Settings
 
-    assert Settings().gemini_live_model == "gemini-3.5-transcribe-live"
-    assert Settings(gemini_live_model="gemini-3.5-transcribe-preview").gemini_live_model == "gemini-3.5-transcribe-live"
-    assert Settings(gemini_live_model="gemini-live-2.5-flash-native-audio").gemini_live_model == "gemini-3.5-transcribe-live"
+    assert Settings().gemini_live_model == "gemini-3.8-live"
+    assert Settings(gemini_live_model="gemini-3.5-transcribe-preview").gemini_live_model == "gemini-3.8-live"
+    assert Settings(gemini_live_model="gemini-live-2.5-flash-native-audio").gemini_live_model == "gemini-3.8-live"
 
 
 def test_placeholder_optional_credentials_are_disabled() -> None:

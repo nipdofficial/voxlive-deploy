@@ -480,7 +480,7 @@ class MeetingSession:
                         self.record.id,
                         segment.segment_id,
                         segment.sequence,
-                        segment.detected_language.value if segment.detected_language else "Unknown",
+                        segment.detected_language or "Unknown",
                     )
                 if published:
                     complete = [item for item in published if item.is_final and item.translated_text]

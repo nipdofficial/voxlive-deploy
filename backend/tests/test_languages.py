@@ -45,6 +45,7 @@ def test_native_script_segments_are_not_reclassified_as_english() -> None:
     assert [item.detected_language for item in result] == [
         SpokenLanguage.tamil,
         SpokenLanguage.sinhala,
+        SpokenLanguage.unknown,
     ]
 
 
@@ -52,7 +53,7 @@ def test_mixed_mode_drops_unrelated_scripts() -> None:
     result = normalize_language_segments(
         [segment("தமிழ்"), segment("ನಮಸ್ಕಾರ"), segment("Hello")], Language.mixed
     )
-    assert [item.text for item in result] == ["தமிழ்", "Hello"]
+    assert [item.text for item in result] == ["தமிழ்", "ನಮಸ್ಕಾರ", "Hello"]
 
 
 def test_monolingual_mode_filters_other_scripts() -> None:
@@ -105,7 +106,7 @@ def test_prompts_explicitly_separate_single_and_mixed_modes() -> None:
     assert "actually spoken" in LANGUAGE_GUIDANCE[Language.tamil]
     assert "actually spoken" in LANGUAGE_GUIDANCE[Language.english]
     assert "never translate or rewrite it as Sinhala" in LANGUAGE_GUIDANCE[Language.sinhala]
-    assert "Transcribe all three" in LANGUAGE_GUIDANCE[Language.mixed]
+    assert "any spoken language" in LANGUAGE_GUIDANCE[Language.mixed]
     assert "transliteration" in LANGUAGE_GUIDANCE[Language.mixed]
 
 
