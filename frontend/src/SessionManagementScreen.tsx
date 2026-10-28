@@ -193,25 +193,26 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
     }
   };
 
-  const openManagedSession = async (session: SessionInfo, showQr = false) => {
+  const openManagedSession = async (session: SessionInfo, showQr = false, modeOverride?: Exclude<SessionType, "Meeting">) => {
     if (starting) return;
     setStarting(true);
     try {
       const connection = await resumeOrganizerMeeting(session.room_code, authToken);
+      const selectedMode = modeOverride ?? session.start_mode ?? "Live";
       if (showQr) {
         setActiveSession({
           code: session.room_code,
           title: session.title,
-          mode: session.start_mode ?? "Live",
+          mode: selectedMode,
           qrUrl: await buildJoinQr(session.room_code),
           connection,
           joinUrl: `${typeof window !== "undefined" ? window.location.origin : "https://d39saojiwcdxjz.cloudfront.net"}/?session=${session.room_code}`,
           info: session,
         });
       } else if (session.status === "live") {
-        await onOpenCreatedSession(connection, session.title, session.start_mode ?? "Live");
+        await onOpenCreatedSession(connection, session.title, selectedMode);
       } else {
-        await onStartCreatedSession(connection, session.title, session.start_mode ?? "Live");
+        await onStartCreatedSession(connection, session.title, selectedMode);
       }
     } catch (error) {
       Alert.alert("Could not open session", error instanceof Error ? error.message : "Please try again");
@@ -364,11 +365,29 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
               </View>
             ) : null}
 
+            <View style={[styles.fieldGroup, { marginTop: 24, marginBottom: 0 }]}>
+              <Text style={styles.label}>How would you like to begin?</Text>
+              <Text style={styles.hint}>Choose Record, Live, or Upload before starting the organizer workflow.</Text>
+              <View style={styles.startModeGrid}>
+                {([
+                  ["Record", "mic", "Capture a session"],
+                  ["Live", "radio", "Transcribe as you speak"],
+                  ["Upload", "upload-cloud", "Choose an audio file"],
+                ] as const).map(([mode, icon, hint]) => (
+                  <Pressable key={mode} onPress={() => setStartMode(mode)} style={[styles.startModeCard, startMode === mode && styles.startModeCardActive]}>
+                    <View style={[styles.startModeIcon, startMode === mode && styles.startModeIconActive]}><Feather name={icon} size={18} color={startMode === mode ? "white" : "#9A95A8"} /></View>
+                    <Text style={[styles.startModeTitle, startMode === mode && styles.startModeTitleActive]}>{mode}</Text>
+                    <Text style={styles.startModeHint}>{hint}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+
             {activeStatus !== "ended" ? <Pressable
               style={[styles.primaryButton, { marginTop: 24 }, starting && { opacity: 0.6 }]}
               disabled={starting || !canChooseStartMode}
               onPress={() => {
-                if (activeSession.info) void openManagedSession(activeSession.info);
+                if (activeSession.info) void openManagedSession(activeSession.info, false, activeSession.mode);
                 else {
                   setStarting(true);
                   const action = activeStatus === "live" ? onOpenCreatedSession : onStartCreatedSession;
@@ -406,24 +425,6 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
           /* Create Session Form */
           <View style={[styles.card, isWide && styles.cardWide]}>
             <Text style={styles.cardHeader}>Create New Event Session</Text>
-
-            <View style={styles.fieldGroup}>
-              <Text style={styles.label}>How would you like to begin?</Text>
-              <Text style={styles.hint}>Choose the workflow now. The selected mode will be saved with this session.</Text>
-              <View style={styles.startModeGrid}>
-                {([
-                  ["Record", "mic", "Capture a session"],
-                  ["Live", "radio", "Transcribe as you speak"],
-                  ["Upload", "upload-cloud", "Choose an audio file"],
-                ] as const).map(([mode, icon, hint]) => (
-                  <Pressable key={mode} onPress={() => setStartMode(mode)} style={[styles.startModeCard, startMode === mode && styles.startModeCardActive]}>
-                    <View style={[styles.startModeIcon, startMode === mode && styles.startModeIconActive]}><Feather name={icon} size={18} color={startMode === mode ? "white" : "#9A95A8"} /></View>
-                    <Text style={[styles.startModeTitle, startMode === mode && styles.startModeTitleActive]}>{mode}</Text>
-                    <Text style={styles.startModeHint}>{hint}</Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
 
             <View style={styles.fieldGroup}>
               <Text style={styles.label}>Organizer Display Name</Text>
