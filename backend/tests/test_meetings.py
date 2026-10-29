@@ -47,6 +47,52 @@ def test_scheduled_meeting_cannot_be_started_early(monkeypatch) -> None:
     assert "scheduled to start" in caught.value.detail
 
 
+def test_start_meeting_applies_the_organizer_mode_choice(monkeypatch) -> None:
+    from app.api.routes import meetings
+    from app.models.schemas import Language, MeetingStart, SessionType, TranscriptRecord
+
+    record = TranscriptRecord(
+        title="Mode selection",
+        language=Language.mixed,
+        session_type=SessionType.meeting,
+        start_mode=SessionType.live,
+    )
+    session = SimpleNamespace(
+        ending=False,
+        host_secret="secret",
+        organizer_user_id="owner",
+        scheduled_start=None,
+        record=record,
+        task=None,
+    )
+
+    async def start():
+        return None
+
+    async def save(saved):
+        return saved
+
+    async def persist():
+        return None
+
+    session.start = start
+    monkeypatch.setattr(meetings.meeting_registry, "get", lambda _code: session)
+    monkeypatch.setattr(meetings.meeting_registry, "persist_pending", persist)
+    monkeypatch.setattr(meetings, "save_record", save)
+    monkeypatch.setattr(meetings, "_session_info", lambda current: current.record.start_mode)
+
+    result = asyncio.run(
+        meetings.start_meeting(
+            "ABCDEFGH",
+            MeetingStart(host_secret="secret", start_mode=SessionType.record),
+            SimpleNamespace(user_id="owner"),
+        )
+    )
+
+    assert result == SessionType.record
+    assert record.start_mode == SessionType.record
+
+
 def test_organizer_can_reopen_own_upcoming_session(monkeypatch) -> None:
     from datetime import datetime, timedelta, timezone
 

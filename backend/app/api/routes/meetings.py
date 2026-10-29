@@ -239,6 +239,8 @@ async def start_meeting(code: str, body: MeetingStart, organizer: SessionRecord 
             status_code=409,
             detail=f"This session is scheduled to start at {session.scheduled_start.isoformat()}",
         )
+    session.record.start_mode = body.start_mode
+    await save_record(session.record)
     await session.start()
     await meeting_registry.persist_pending()
     if session.task:

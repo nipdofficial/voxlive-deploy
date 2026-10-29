@@ -222,6 +222,13 @@ class MeetingEnd(BaseModel):
 
 class MeetingStart(BaseModel):
     host_secret: str = Field(min_length=1)
+    start_mode: SessionType = SessionType.live
+
+    @model_validator(mode="after")
+    def validate_start_mode(self) -> "MeetingStart":
+        if self.start_mode not in {SessionType.record, SessionType.live}:
+            raise ValueError("start_mode must be Record or Live when starting a room")
+        return self
 
 
 class MeetingUpdate(BaseModel):

@@ -1388,7 +1388,11 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
     setStatus("connecting");
     try {
       await prepareMeetingMicrophone();
-      await startMeetingApi(connection.room_code, connection.host_secret ?? "");
+      await startMeetingApi(
+        connection.room_code,
+        connection.host_secret ?? "",
+        sessionType === "Record" ? "Record" : "Live",
+      );
       await connectToMeeting(connection, meetingTitle);
     } catch (error) {
       setBusy(false);

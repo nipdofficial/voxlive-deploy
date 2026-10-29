@@ -261,11 +261,11 @@ export async function endMeeting(roomCode: string, hostSecret: string): Promise<
   return response.json();
 }
 
-export async function startMeeting(roomCode: string, hostSecret: string): Promise<SessionInfo> {
+export async function startMeeting(roomCode: string, hostSecret: string, startMode: "Record" | "Live"): Promise<SessionInfo> {
   const response = await authenticatedFetch(`${API_URL}/meetings/${encodeURIComponent(roomCode.trim().toUpperCase())}/start`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ host_secret: hostSecret }),
+    body: JSON.stringify({ host_secret: hostSecret, start_mode: startMode }),
   });
   if (!response.ok) throw new Error((await response.text()) || "Could not start meeting");
   return response.json();

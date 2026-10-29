@@ -51,7 +51,6 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
   const [maxParticipants, setMaxParticipants] = useState("50");
   const [language, setLanguage] = useState<Language>("Mixed");
   const [preferredSpeakerLanguage, setPreferredSpeakerLanguage] = useState<Language>("Sinhala");
-  const [startMode, setStartMode] = useState<Exclude<SessionType, "Meeting">>("Live");
   const [scheduleMode, setScheduleMode] = useState<"now" | "scheduled">("now");
   const [startDate, setStartDate] = useState("");
   const [startTime, setStartTime] = useState("");
@@ -63,7 +62,6 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
   const [activeSession, setActiveSession] = useState<{
     code: string;
     title: string;
-    mode: Exclude<SessionType, "Meeting">;
     qrUrl: string;
     connection: MeetingConnection;
     joinUrl: string;
@@ -155,7 +153,6 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
         scheduledEnd,
         authToken,
         language === "Mixed" ? preferredSpeakerLanguage : undefined,
-        startMode,
       );
 
       const qrUrl = await buildJoinQr(conn.room_code, conn.invitation_secret);
@@ -166,7 +163,6 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
       setActiveSession({
         code: conn.room_code,
         title: sessionTitle.trim() || "Event Session",
-        mode: startMode,
         qrUrl,
         connection: conn,
         joinUrl: joinUrlFor(conn.room_code, conn.invitation_secret),
@@ -208,7 +204,6 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
         setActiveSession({
           code: session.room_code,
           title: session.title,
-          mode: selectedMode,
           qrUrl: await buildJoinQr(session.room_code, connection.invitation_secret),
           connection,
           joinUrl: joinUrlFor(session.room_code, connection.invitation_secret),
@@ -370,33 +365,15 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
               </View>
             ) : null}
 
-            <View style={[styles.fieldGroup, { marginTop: 24, marginBottom: 0 }]}>
-              <Text style={styles.label}>How would you like to begin?</Text>
-              <Text style={styles.hint}>Choose Record, Live, or Upload before starting the organizer workflow.</Text>
-              <View style={styles.startModeGrid}>
-                {([
-                  ["Record", "mic", "Capture a session"],
-                  ["Live", "radio", "Transcribe as you speak"],
-                  ["Upload", "upload-cloud", "Choose an audio file"],
-                ] as const).map(([mode, icon, hint]) => (
-                  <Pressable key={mode} onPress={() => setStartMode(mode)} style={[styles.startModeCard, startMode === mode && styles.startModeCardActive]}>
-                    <View style={[styles.startModeIcon, startMode === mode && styles.startModeIconActive]}><Feather name={icon} size={18} color={startMode === mode ? "white" : "#9A95A8"} /></View>
-                    <Text style={[styles.startModeTitle, startMode === mode && styles.startModeTitleActive]}>{mode}</Text>
-                    <Text style={styles.startModeHint}>{hint}</Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-
             {activeStatus !== "ended" ? <Pressable
               style={[styles.primaryButton, { marginTop: 24 }, starting && { opacity: 0.6 }]}
               disabled={starting || !canChooseStartMode}
               onPress={() => {
-                if (activeSession.info) void openManagedSession(activeSession.info, false, activeSession.mode);
+                if (activeSession.info) void openManagedSession(activeSession.info, false);
                 else {
                   setStarting(true);
                   const action = activeStatus === "live" ? onOpenCreatedSession : onStartCreatedSession;
-                  void action(activeSession.connection, activeSession.title, activeSession.mode)
+                  void action(activeSession.connection, activeSession.title)
                     .catch((error) => Alert.alert("Could not open meeting", error instanceof Error ? error.message : "Please try again"))
                     .finally(() => setStarting(false));
                 }
@@ -407,7 +384,7 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
                 ? "Enter Organizer Room"
                 : waitingForSchedule && scheduledStartTime
                   ? `Configure upcoming session · starts ${new Date(scheduledStartTime).toLocaleString()}`
-                  : `Continue with ${activeSession.mode}`}</Text>
+                  : "Continue to choose mode"}</Text>
             </Pressable> : <View style={styles.endedBanner}><Feather name="check-circle" size={17} color="#55D6A4" /><Text style={styles.endedBannerText}>Meeting ended. This room is closed.</Text></View>}
 
             <Pressable
@@ -484,7 +461,7 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
                 <View style={styles.reminderRow}>
                   {[5, 15, 30].map((minutes) => <Pressable key={minutes} onPress={() => setReminderMinutes(minutes)} style={[styles.reminderOption, reminderMinutes === minutes && styles.reminderOptionActive]}><Feather name="bell" size={13} color={reminderMinutes === minutes ? "white" : "#A78BFA"} /><Text style={[styles.reminderText, reminderMinutes === minutes && { color: "white" }]}>{minutes} min before</Text></Pressable>)}
                 </View>
-              </> : <Text style={styles.hint}>Create the room and QR now. When ready, choose Live or Upload before starting the organizer workflow.</Text>}
+              </> : <Text style={styles.hint}>Create the room and QR now. Choose Record, Live, or Upload on the organizer start screen.</Text>}
             </View>
 
             <View style={styles.fieldGroup}>
@@ -655,14 +632,6 @@ const getStyles = (isDark: boolean) =>
     fieldGroup: {
       marginBottom: 18,
     },
-    startModeGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 12 },
-    startModeCard: { flex: 1, minWidth: 170, minHeight: 112, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)", backgroundColor: isDark ? "#17131F" : "#F8F6FC" },
-    startModeCardActive: { borderColor: "#8067CE", backgroundColor: isDark ? "#2A2340" : "#EEE8FF" },
-    startModeIcon: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: isDark ? "#272231" : "#E9E4F4", marginBottom: 10 },
-    startModeIconActive: { backgroundColor: "#755BD0" },
-    startModeTitle: { color: isDark ? "#E3DFF0" : "#332B44", fontSize: 14, fontWeight: "700" },
-    startModeTitleActive: { color: isDark ? "white" : "#4F3A91" },
-    startModeHint: { color: isDark ? "#958EA4" : "#71697D", fontSize: 11, marginTop: 5 },
     scheduleFields: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 12 },
     label: {
       fontSize: 13,
