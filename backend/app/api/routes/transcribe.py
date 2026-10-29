@@ -176,6 +176,36 @@ async def _process(record: TranscriptRecord, path: Path, mime_type: str) -> None
                 else:
                     record.diarization = False
                     record.error = f"Speaker diarization unavailable: {exc}"
+        if (
+            record.session_type in {SessionType.upload, SessionType.record}
+            and getattr(settings, "auto_translate", False)
+            and record.segments
+            and any(not item.translated_text for item in record.segments)
+        ):
+            record.processing_stage = ProcessingStage.transcribing
+            await save_record(record)
+            try:
+                translations = await gemini.translate_segments(
+                    record.segments, settings.target_language
+                )
+                record.segments = [
+                    item.model_copy(
+                        update={
+                            "translated_text": translated or item.translated_text
+                        }
+                    )
+                    for item, translated in zip(
+                        record.segments, translations, strict=True
+                    )
+                ]
+                if any(not item.translated_text for item in record.segments):
+                    warning = "Tamil translation was incomplete; retry from History"
+                    record.error = f"{record.error}; {warning}" if record.error else warning
+            except Exception as exc:
+                # A translation outage must not destroy a valid source
+                # transcript or mark the entire upload as failed.
+                warning = f"Tamil translation unavailable; retry from History: {exc}"
+                record.error = f"{record.error}; {warning}" if record.error else warning
         # A client-captured duration describes the complete recording, including
         # silence after the final utterance. Only infer it from segments when the
         # recorder or uploaded file could not provide an authoritative value.

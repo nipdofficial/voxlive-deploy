@@ -381,6 +381,8 @@ function TranscriptPanel({
   onSaveSummary,
   onUpdateRecord,
   onRenameSpeaker,
+  onTranslate,
+  translating,
   errorMessage,
   styles,
 }: {
@@ -469,6 +471,18 @@ function TranscriptPanel({
             {exportBusy === "transcript" ? <ActivityIndicator color="#B9A7FF" size={13} /> : <Feather name="file-text" size={14} color="#B9A7FF" />}
             <Text style={styles.exportButtonText}>Save TXT</Text>
           </Pressable>
+          {exportRecord.segments.some((segment) => !segment.translated_text) && onTranslate ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Translate transcript to Tamil"
+              disabled={Boolean(translating)}
+              onPress={() => onTranslate(exportRecord, "Tamil")}
+              style={({ pressed }) => [styles.exportButton, pressed && styles.exportButtonPressed, translating && styles.exportButtonDisabled]}
+            >
+              {translating ? <ActivityIndicator color="#B9A7FF" size={13} /> : <Feather name="globe" size={14} color="#B9A7FF" />}
+              <Text style={styles.exportButtonText}>{translating ? "Translating" : "Translate to Tamil"}</Text>
+            </Pressable>
+          ) : null}
         </View>
       ) : null}
 
