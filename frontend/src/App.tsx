@@ -1159,13 +1159,10 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
             setInterimText(String(message.text ?? ""));
             setInterimLanguage(message.detected_language ? String(message.detected_language) : null);
           } else if (message.type === "translation") {
-            setSegments((current) => current.map((segment) => (
-              segment.start === message.segment.start
-                && segment.end === message.segment.end
-                && segment.text === message.segment.text
-                ? { ...segment, translated_text: message.segment.translated_text }
-                : segment
-            )));
+            // Translation timestamps can be serialized with tiny float
+            // differences. Upsert by segment identity instead of requiring an
+            // exact start/end match, so live Tamil appears on the same line.
+            setSegments((current) => upsertLiveSegment(current, message.segment));
           } else if (message.type === "warning") {
             setStatus("listening - preview delayed");
             setBusy(false);

@@ -486,9 +486,17 @@ async def live_transcription(websocket: WebSocket) -> None:
                     return
                 for index, saved in enumerate(record.segments):
                     if (
-                        saved.start == segment.start
-                        and saved.end == segment.end
-                        and saved.text == segment.text
+                        (
+                            saved.segment_id
+                            and segment.segment_id
+                            and saved.segment_id == segment.segment_id
+                        )
+                        or (
+                            abs(saved.start - segment.start) <= 0.15
+                            and abs(saved.end - segment.end) <= 0.15
+                            and " ".join(saved.text.casefold().split())
+                            == " ".join(segment.text.casefold().split())
+                        )
                     ):
                         translated_segment = saved.model_copy(
                             update={"translated_text": translated_text}
