@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import re
 from google import genai
 from google.genai import errors
@@ -14,6 +15,9 @@ from app.models.schemas import (
     SummaryContent,
     TranscriptSegment,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 LANGUAGE_GUIDANCE = {
@@ -407,9 +411,13 @@ class GeminiService:
                 )
                 break
             except TimeoutError as exc:
-                raise RuntimeError(
-                    f"Gemini transcription timed out after {timeout_seconds:g} seconds"
-                ) from exc
+                if attempt >= self.settings.gemini_max_retries:
+                    raise RuntimeError(
+                        f"Gemini transcription timed out after {timeout_seconds:g} seconds"
+                    ) from exc
+                await asyncio.sleep(
+                    self.settings.gemini_retry_base_seconds * (2**attempt)
+                )
             except errors.APIError as exc:
                 if (
                     exc.code not in RETRYABLE_API_CODES
@@ -474,9 +482,20 @@ class GeminiService:
                 for item in normalized
             )
         ):
-            detected = await self._detect_audio_language(
-                audio, mime_type, timeout_seconds
-            )
+            try:
+                detected = await self._detect_audio_language(
+                    audio, mime_type, min(timeout_seconds, 20.0)
+                )
+            except (TimeoutError, errors.APIError) as exc:
+                # This second call is only a best-effort guard against a
+                # Sinhala/Tamil clip being mislabeled as English. A valid
+                # primary transcript must not be discarded when verification
+                # is unavailable or slow.
+                logger.warning(
+                    "Mixed-language verification skipped after provider failure: %s",
+                    type(exc).__name__,
+                )
+                detected = SpokenLanguage.unknown
             if detected in (SpokenLanguage.sinhala, SpokenLanguage.tamil):
                 retry_language = (
                     Language.sinhala
