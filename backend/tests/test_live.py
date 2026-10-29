@@ -536,6 +536,82 @@ def test_finalize_skips_pyannote_when_toggle_is_off(monkeypatch) -> None:
     assert record.transcript == "hello"
 
 
+def test_record_finalize_adds_tamil_translation_after_stop(monkeypatch) -> None:
+    record = TranscriptRecord(
+        title="Recorded session",
+        language=Language.english,
+        session_type=SessionType.record,
+        diarization=False,
+        status=JobStatus.processing,
+        segments=[TranscriptSegment(start=0, end=1, text="Hello everyone")],
+    )
+
+    class FakeGemini:
+        async def translate_segments(self, segments, target_language):
+            assert [item.text for item in segments] == ["Hello everyone"]
+            assert target_language == Language.tamil
+            return ["அனைவருக்கும் வணக்கம்"]
+
+    async def ignore_save(saved: TranscriptRecord):
+        return saved
+
+    monkeypatch.setattr(live, "GeminiService", FakeGemini)
+    monkeypatch.setattr(live, "save_record", ignore_save)
+    monkeypatch.setattr(
+        live,
+        "get_settings",
+        lambda: SimpleNamespace(
+            live_finalize_full_audio=False,
+            auto_translate=True,
+            target_language=Language.tamil,
+        ),
+    )
+
+    asyncio.run(live._finalize_live(record, Path("unused.wav")))
+
+    assert record.status == JobStatus.completed
+    assert record.segments[0].text == "Hello everyone"
+    assert record.segments[0].translated_text == "அனைவருக்கும் வணக்கம்"
+    assert record.transcript == "Hello everyone\nTranslation: அனைவருக்கும் வணக்கம்"
+
+
+def test_record_finalize_preserves_source_when_translation_fails(monkeypatch) -> None:
+    record = TranscriptRecord(
+        title="Recorded session",
+        language=Language.english,
+        session_type=SessionType.record,
+        diarization=False,
+        status=JobStatus.processing,
+        segments=[TranscriptSegment(start=0, end=1, text="Preserve this")],
+    )
+
+    class FailingGemini:
+        async def translate_segments(self, *_args, **_kwargs):
+            raise TimeoutError("translation timed out")
+
+    async def ignore_save(saved: TranscriptRecord):
+        return saved
+
+    monkeypatch.setattr(live, "GeminiService", FailingGemini)
+    monkeypatch.setattr(live, "save_record", ignore_save)
+    monkeypatch.setattr(
+        live,
+        "get_settings",
+        lambda: SimpleNamespace(
+            live_finalize_full_audio=False,
+            auto_translate=True,
+            target_language=Language.tamil,
+        ),
+    )
+
+    asyncio.run(live._finalize_live(record, Path("unused.wav")))
+
+    assert record.status == JobStatus.completed
+    assert record.segments[0].text == "Preserve this"
+    assert record.segments[0].translated_text is None
+    assert "Tamil translation unavailable" in (record.error or "")
+
+
 def test_finalize_preserves_transcript_when_diarization_fails(monkeypatch) -> None:
     record = TranscriptRecord(
         title="Live test",

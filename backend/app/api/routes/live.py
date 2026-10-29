@@ -342,19 +342,6 @@ async def _finalize_live(record: TranscriptRecord, path: Path) -> None:
                         record.error = (
                             "Final quality pass returned no speech; live preview retained"
                         ) if preview_segments else "No speech was detected"
-                    if record.session_type == SessionType.live and getattr(settings, "auto_translate", False) and record.segments and any(
-                        not item.translated_text for item in record.segments
-                    ):
-                        final_gemini = GeminiService()
-                        translations = await final_gemini.translate_segments(
-                            record.segments, settings.target_language
-                        )
-                        record.segments = [
-                            item.model_copy(update={"translated_text": translated})
-                            for item, translated in zip(
-                                record.segments, translations, strict=True
-                            )
-                        ]
                     record.error = None
                 else:
                     record.error = (
@@ -364,6 +351,38 @@ async def _finalize_live(record: TranscriptRecord, path: Path) -> None:
             except Exception as exc:
                 record.segments = preview_segments
                 record.error = f"Full-session quality pass unavailable: {exc}"
+        # Live mode translates each line during capture, while Record mode
+        # intentionally shows source captions only. Both modes must leave the
+        # completed record with Tamil translations after Stop. Keeping this
+        # outside the optional full-audio pass also covers retained previews.
+        if (
+            record.session_type in {SessionType.live, SessionType.record}
+            and getattr(settings, "auto_translate", False)
+            and record.segments
+            and any(not item.translated_text for item in record.segments)
+        ):
+            record.processing_stage = ProcessingStage.transcribing
+            await save_record(record)
+            try:
+                translations = await GeminiService().translate_segments(
+                    record.segments, settings.target_language
+                )
+                record.segments = [
+                    item.model_copy(
+                        update={
+                            "translated_text": translated or item.translated_text
+                        }
+                    )
+                    for item, translated in zip(
+                        record.segments, translations, strict=True
+                    )
+                ]
+                if any(not item.translated_text for item in record.segments):
+                    warning = "Tamil translation was incomplete; retry from History"
+                    record.error = f"{record.error}; {warning}" if record.error else warning
+            except Exception as exc:
+                warning = f"Tamil translation unavailable; retry from History: {exc}"
+                record.error = f"{record.error}; {warning}" if record.error else warning
         if record.diarization and record.segments:
             record.processing_stage = ProcessingStage.diarizing
             await save_record(record)
