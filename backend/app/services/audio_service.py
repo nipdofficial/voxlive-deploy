@@ -19,7 +19,7 @@ class SpeechActivityDetector:
         self.pending = bytearray()
         self.vad = webrtcvad.Vad(3)
         # One isolated click or burst should not unlock a generative model.
-        # Require 4 voiced frames in a rolling 100 ms window, then retain a
+        # Require 3 voiced frames in a rolling 100 ms window, then retain a
         # short hangover so unvoiced consonants and natural pauses survive.
         self.recent_frames: deque[bool] = deque(maxlen=5)
         self.hangover_frames = 0
@@ -36,7 +36,7 @@ class SpeechActivityDetector:
                 frame, self.sample_rate
             )
             self.recent_frames.append(voiced)
-            if sum(self.recent_frames) >= 4:
+            if sum(self.recent_frames) >= 3:
                 self.hangover_frames = 15  # 300 ms at 20 ms per frame
             elif self.hangover_frames:
                 self.hangover_frames -= 1
