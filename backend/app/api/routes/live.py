@@ -108,7 +108,7 @@ def _gate_live_pcm(pcm: bytes, threshold: float) -> bytes:
 def _has_recent_voice_activity(
     last_voice_at: float | None, now: float, window: float
 ) -> bool:
-    """Do not trust live-model text unless the mic recently carried voice-level audio."""
+    """Reject delayed model speculation after the speaker has stopped."""
     return last_voice_at is not None and 0 <= now - last_voice_at <= window
 
 

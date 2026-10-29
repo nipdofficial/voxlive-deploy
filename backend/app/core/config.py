@@ -57,7 +57,9 @@ class Settings(BaseSettings):
     # Live model output is only trusted shortly after the mic carried voice-level audio.
     # Gemini Live can emit speculative text after the speaker stops. Keep the
     # acceptance window short so silence cannot become a new caption.
-    live_voice_activity_window_seconds: float = 2.0
+    # Gemini can emit a speculative final after input stops. Keep this window
+    # short so silence cannot become a new live caption.
+    live_voice_activity_window_seconds: float = 0.8
     live_finalize_full_audio: bool = True
     max_live_minutes: float = 120.0
     max_upload_mb: int = 20
