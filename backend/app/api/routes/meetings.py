@@ -2,9 +2,11 @@ import hmac
 import io
 import asyncio
 import time
+from pathlib import Path
+from uuid import uuid4
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Header, HTTPException, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, UploadFile, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import Response
 
 from app.api.routes.history import delete_history, list_history, save_record
@@ -22,6 +24,9 @@ from app.models.schemas import (
     MeetingStart,
     MeetingJoin,
     MeetingUpdate,
+    PlaybackControl,
+    PlaybackStatus,
+    ProcessingStage,
     SessionInfo,
     SessionType,
     TranscriptRecord,
@@ -43,6 +48,11 @@ def _same_secret(expected: str, supplied: str) -> bool:
 
 
 def _connection(session, participant, token: str, *, is_host: bool) -> MeetingConnection:
+    playback_position = (
+        session.current_playback_position()
+        if session.record.start_mode == SessionType.upload
+        else None
+    )
     return MeetingConnection(
         livekit_url=get_settings().livekit_url or "",
         token=token,
@@ -60,7 +70,15 @@ def _connection(session, participant, token: str, *, is_host: bool) -> MeetingCo
             (
                 segment
                 for segment in session.record.segments
-                if segment.is_final and segment.translated_text
+                if segment.is_final
+                and (
+                    session.record.start_mode != SessionType.live
+                    or segment.translated_text
+                )
+                and (
+                    playback_position is None
+                    or segment.start <= playback_position
+                )
             ),
             key=lambda segment: (segment.sequence or 0, segment.start, segment.end),
         ),
@@ -86,6 +104,12 @@ def _session_info(session) -> SessionInfo:
         ended_at=session.record.ended_at,
         speaker_name=session.record.participants[0].display_name if session.record.participants else None,
         status=session.status,
+        playback_status=getattr(session, "playback_status", None),
+        playback_position_seconds=session.current_playback_position()
+        if session.record.start_mode == SessionType.upload
+        else 0,
+        duration_seconds=session.record.duration_seconds,
+        is_prerecorded=session.record.start_mode == SessionType.upload,
     )
 
 
@@ -224,7 +248,17 @@ def _authorize_attendee(code: str, authorization: str | None):
 async def attendee_transcript(code: str, authorization: str | None = Header(default=None)) -> dict:
     """Return only the joined room's transcript to a valid room participant."""
     session = _authorize_attendee(code, authorization)
-    return {"segments": [segment.model_dump() for segment in session.record.segments], "error": session.record.error}
+    position = (
+        session.current_playback_position()
+        if session.record.start_mode == SessionType.upload
+        else None
+    )
+    visible = [
+        segment
+        for segment in session.record.segments
+        if position is None or segment.start <= position
+    ]
+    return {"segments": [segment.model_dump() for segment in visible], "error": session.record.error}
 
 
 @router.post("/{code}/start", response_model=SessionInfo)
@@ -240,6 +274,12 @@ async def start_meeting(code: str, body: MeetingStart, organizer: SessionRecord 
             detail=f"This session is scheduled to start at {session.scheduled_start.isoformat()}",
         )
     session.record.start_mode = body.start_mode
+    if body.start_mode == SessionType.upload and (
+        session.record.status != JobStatus.completed
+        or session.record.playback_status != PlaybackStatus.ready
+        or not session.record.segments
+    ):
+        raise HTTPException(status_code=409, detail="Upload processing must finish before the session starts")
     await save_record(session.record)
     await session.start()
     await meeting_registry.persist_pending()
@@ -248,6 +288,84 @@ async def start_meeting(code: str, body: MeetingStart, organizer: SessionRecord 
             lambda task, room_code=code: meeting_registry.sessions.pop(room_code, None)
             if task.cancelled() or task.exception() else None
         )
+    return _session_info(session)
+
+
+@router.post("/{code}/upload", status_code=status.HTTP_202_ACCEPTED)
+async def prepare_meeting_upload(
+    code: str,
+    file: UploadFile = File(...),
+    host_secret: str = Form(...),
+    language: str = Form(...),
+    diarization: bool = Form(False),
+    duration_seconds: float | None = Form(default=None, gt=0, le=28_800),
+    organizer: SessionRecord = Depends(current_session),
+) -> dict[str, str]:
+    """Prepare one uploaded recording for authoritative shared playback."""
+    from app.api.routes import transcribe
+    from app.models.schemas import Language
+
+    session = meeting_registry.get(code)
+    if not session or session.ending:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if session.started:
+        raise HTTPException(status_code=409, detail="The session has already started")
+    if session.organizer_user_id != organizer.user_id or not _same_secret(session.host_secret, host_secret):
+        raise HTTPException(status_code=403, detail="Only the session host can upload audio")
+    try:
+        selected_language = Language(language)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail="Unsupported input language") from exc
+    suffix = Path(file.filename or "audio.wav").suffix.lower() or ".wav"
+    if suffix not in transcribe.ALLOWED_AUDIO_SUFFIXES:
+        raise HTTPException(status_code=415, detail=f"Unsupported audio format: {suffix}")
+    path = get_settings().data_dir / "audio" / f"{uuid4()}{suffix}"
+    session.record.processing_stage = ProcessingStage.uploading
+    session.record.playback_status = PlaybackStatus.preparing
+    await save_record(session.record)
+    await transcribe._write_upload_limited(
+        file, path, get_settings().max_upload_mb * 1024 * 1024
+    )
+    session.record.language = selected_language
+    session.language = selected_language
+    session.record.start_mode = SessionType.upload
+    session.record.diarization = diarization
+    session.record.duration_seconds = duration_seconds
+    session.record.audio_filename = path.name
+    session.record.status = JobStatus.queued
+    session.record.processing_stage = ProcessingStage.transcribing
+    session.record.playback_status = PlaybackStatus.preparing
+    session.record.playback_position_seconds = 0
+    session.record.segments = []
+    session.record.transcript = ""
+    session.record.error = None
+    await save_record(session.record)
+    transcribe._start_task(
+        transcribe._process(
+            session.record,
+            path,
+            transcribe._upload_mime_type(file.content_type, suffix),
+        ),
+        session.record.id,
+    )
+    return {"id": session.record.id, "status": session.record.status.value}
+
+
+@router.post("/{code}/playback", response_model=SessionInfo)
+async def control_meeting_playback(
+    code: str,
+    body: PlaybackControl,
+    organizer: SessionRecord = Depends(current_session),
+) -> SessionInfo:
+    session = meeting_registry.get(code)
+    if not session or session.ending:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if session.organizer_user_id != organizer.user_id or not _same_secret(session.host_secret, body.host_secret):
+        raise HTTPException(status_code=403, detail="Only the session host can control playback")
+    try:
+        await session.control_playback(body.action)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return _session_info(session)
 
 

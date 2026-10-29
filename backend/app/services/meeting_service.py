@@ -16,6 +16,7 @@ from app.models.schemas import (
     JobStatus,
     Language,
     MeetingParticipant,
+    PlaybackStatus,
     ProcessingStage,
     SessionType,
     TranscriptRecord,
@@ -174,6 +175,11 @@ class MeetingSession:
         # translation pool can safely fill those lines by segment id.
         self.translation_slots = asyncio.Semaphore(3)
         self.next_segment_sequence = 1
+        self.playback_status = record.playback_status
+        self.playback_position_seconds = record.playback_position_seconds
+        self.playback_anchor_monotonic = time.monotonic()
+        self.playback_gate = asyncio.Event()
+        self.playback_gate.set()
 
     @property
     def participant_count(self) -> int:
@@ -220,7 +226,11 @@ class MeetingSession:
     async def start(self) -> None:
         if self.started:
             return
-        self.task = asyncio.create_task(self._run())
+        self.task = asyncio.create_task(
+            self._run_upload()
+            if self.record.start_mode == SessionType.upload
+            else self._run()
+        )
         try:
             await asyncio.wait_for(self.ready_event.wait(), timeout=12)
         except asyncio.TimeoutError as exc:
@@ -230,6 +240,134 @@ class MeetingSession:
             raise RuntimeError("The live transcription service did not become ready") from exc
         if self.start_error:
             raise RuntimeError(self.start_error)
+
+    def current_playback_position(self) -> float:
+        if self.playback_status == PlaybackStatus.playing:
+            elapsed = time.monotonic() - self.playback_anchor_monotonic
+            return min(
+                self.record.duration_seconds or float("inf"),
+                self.playback_position_seconds + elapsed,
+            )
+        return self.playback_position_seconds
+
+    async def _broadcast_playback(self) -> None:
+        position = self.current_playback_position()
+        self.record.playback_position_seconds = position
+        if not self.room:
+            return
+        payload = json.dumps(
+            {
+                "type": "playback",
+                "status": (self.playback_status or PlaybackStatus.preparing).value,
+                "position_seconds": position,
+                "duration_seconds": self.record.duration_seconds,
+                "is_prerecorded": True,
+            },
+            ensure_ascii=False,
+        ).encode("utf-8")
+        await self.room.local_participant.publish_data(
+            payload, reliable=True, topic=TRANSCRIPT_TOPIC
+        )
+
+    async def control_playback(self, action: str) -> None:
+        if self.record.start_mode != SessionType.upload or not self.started:
+            raise ValueError("This is not an active prerecorded session")
+        if action == "pause" and self.playback_status == PlaybackStatus.playing:
+            self.playback_position_seconds = self.current_playback_position()
+            self.playback_status = PlaybackStatus.paused
+            self.playback_gate.clear()
+        elif action == "resume" and self.playback_status == PlaybackStatus.paused:
+            self.playback_anchor_monotonic = time.monotonic()
+            self.playback_status = PlaybackStatus.playing
+            self.playback_gate.set()
+        elif action == "stop":
+            await self.end()
+            return
+        else:
+            raise ValueError(f"Cannot {action} while playback is {self.playback_status}")
+        self.record.playback_status = self.playback_status
+        self.record.playback_position_seconds = self.playback_position_seconds
+        await save_record(self.record)
+        await self._broadcast_playback()
+
+    async def _run_upload(self) -> None:
+        """Broadcast prepared segments against one server-owned monotonic clock."""
+        try:
+            from livekit import api, rtc
+
+            settings = get_settings()
+            if self.record.status != JobStatus.completed or not self.record.segments:
+                raise RuntimeError("The uploaded recording is not ready")
+            token = (
+                api.AccessToken(settings.livekit_api_key, settings.livekit_api_secret)
+                .with_identity(f"playback-{self.code.lower()}")
+                .with_name("VoxLive Prerecorded Playback")
+                .with_ttl(timedelta(minutes=settings.livekit_token_minutes))
+                .with_grants(api.VideoGrants(room_join=True, room=self.room_name, can_publish=False, can_subscribe=False, can_publish_data=True, hidden=True))
+            ).to_jwt()
+            self.room = rtc.Room()
+            await self.room.connect(settings.livekit_url, token)
+            self.started = True
+            self.started_at = time.monotonic()
+            self.playback_anchor_monotonic = self.started_at
+            self.playback_position_seconds = 0.0
+            self.playback_status = PlaybackStatus.playing
+            self.record.playback_status = self.playback_status
+            self.record.playback_position_seconds = 0.0
+            self.record.started_at = datetime.now(timezone.utc)
+            self.record.ended_at = None
+            self.ready_event.set()
+            await save_record(self.record)
+            await self._broadcast_playback()
+
+            delivered: set[str] = set()
+            segments = sorted(
+                self.record.segments,
+                key=lambda item: (item.start, item.sequence or 0, item.end),
+            )
+            while not self.stop_event.is_set():
+                await self.playback_gate.wait()
+                position = self.current_playback_position()
+                for segment in segments:
+                    identity = segment.segment_id or f"{segment.sequence}:{segment.start}:{segment.text}"
+                    if identity in delivered or segment.start > position:
+                        continue
+                    await self._broadcast_segment(segment)
+                    delivered.add(identity)
+                await self._broadcast_playback()
+                duration = self.record.duration_seconds or max(
+                    (item.end for item in segments), default=0.0
+                )
+                if position >= duration:
+                    break
+                try:
+                    await asyncio.wait_for(self.stop_event.wait(), timeout=0.5)
+                except asyncio.TimeoutError:
+                    pass
+
+            completed_naturally = not self.stop_event.is_set()
+            self.playback_position_seconds = min(
+                self.current_playback_position(), self.record.duration_seconds or float("inf")
+            )
+            self.playback_status = (
+                PlaybackStatus.completed if completed_naturally else PlaybackStatus.stopped
+            )
+            self.record.playback_status = self.playback_status
+            self.record.playback_position_seconds = self.playback_position_seconds
+            self.record.ended_at = datetime.now(timezone.utc)
+            self.record.status = JobStatus.completed
+            self.record.processing_stage = None
+            self.ending = True
+            await save_record(self.record)
+            await self._broadcast_playback()
+            await self.room.disconnect()
+        except Exception as exc:
+            self.start_error = f"Prerecorded playback failed: {exc}"
+            self.ready_event.set()
+            self.record.status = JobStatus.failed
+            self.record.processing_stage = None
+            self.record.error = self.start_error
+            await save_record(self.record)
 
     async def _run(self) -> None:
         try:
@@ -681,6 +819,10 @@ class MeetingSession:
     async def end(self) -> None:
         if self.ending:
             return
+        if self.record.start_mode == SessionType.upload:
+            self.stop_event.set()
+            self.playback_gate.set()
+            return
         self.ending = True
         self.record.ended_at = datetime.now(timezone.utc)
         self.record.status = JobStatus.processing
@@ -741,6 +883,29 @@ class MeetingSession:
         await save_record(self.record)
 
     async def _finalize_state(self, state: TrackState) -> None:
+        # Record mode intentionally publishes only original-language text
+        # while the microphone is active. Reuse those timestamped canonical
+        # segments and add Tamil after Stop; do not replace their real capture
+        # offsets with one untimed full-recording text block.
+        if self.record.start_mode == SessionType.record and state.preview_segments:
+            source = [
+                item.model_copy(update={"is_final": True})
+                for item in state.preview_segments
+            ]
+            try:
+                translations = await GeminiService().translate_segments(
+                    source, get_settings().target_language
+                )
+                state.final_segments = [
+                    item.model_copy(update={"translated_text": translated})
+                    for item, translated in zip(source, translations, strict=True)
+                ]
+            except Exception as exc:
+                state.final_segments = source
+                state.warnings.append(
+                    f"{state.display_name} Tamil translation unavailable; original transcript preserved: {exc}"
+                )
+            return
         # The translated, canonical live sequence is the authoritative meeting
         # record. Keeping it prevents the historical file from disagreeing
         # with what both organizer and attendees saw live. Fall back to the
@@ -883,7 +1048,12 @@ class MeetingRegistry:
             for entry in entries:
                 try:
                     record = await get_record(entry["record_id"])
-                    if not record or record.status != JobStatus.queued or not record.organizer_user_id:
+                    if (
+                        not record
+                        or not record.organizer_user_id
+                        or record.status not in {JobStatus.queued, JobStatus.processing, JobStatus.completed}
+                        or record.ended_at is not None
+                    ):
                         continue
                     session = MeetingSession(
                         entry["code"], entry["host_secret"], record, record.language,

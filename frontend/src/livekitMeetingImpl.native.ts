@@ -38,6 +38,12 @@ export const connectMeeting: ConnectMeeting = async (url, token, callbacks, opti
       if (message.type === "translation" && message.segment) callbacks.onTranslation?.(message.segment);
       if (message.type === "warning") callbacks.onLiveIssue?.(String(message.message || "Live transcription has a problem; audio is still being saved."));
       if (message.type === "recovered") callbacks.onLiveIssue?.(null);
+      if (message.type === "playback") callbacks.onPlaybackState?.({
+        status: String(message.status || "playing"),
+        position_seconds: Number(message.position_seconds || 0),
+        duration_seconds: message.duration_seconds == null ? null : Number(message.duration_seconds),
+        is_prerecorded: Boolean(message.is_prerecorded),
+      });
     } catch (error) {
       callbacks.onError(error instanceof Error ? error : new Error("Invalid transcript event"));
     }

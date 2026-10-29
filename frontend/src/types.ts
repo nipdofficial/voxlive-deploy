@@ -1,7 +1,8 @@
 export type Language = "Sinhala" | "Tamil" | "English" | "Mixed";
 export type SessionType = "Record" | "Live" | "Upload" | "Meeting";
 export type JobStatus = "queued" | "processing" | "completed" | "failed";
-export type ProcessingStage = "recording" | "saving_audio" | "transcribing" | "diarizing";
+export type ProcessingStage = "uploading" | "recording" | "saving_audio" | "transcribing" | "translating" | "diarizing" | "ready";
+export type PlaybackStatus = "preparing" | "ready" | "playing" | "paused" | "completed" | "stopped";
 export type SpokenLanguage = string;
 
 export interface Segment {
@@ -54,6 +55,8 @@ export interface TranscriptRecord {
   transcript: string;
   segments: Segment[];
   duration_seconds?: number | null;
+  playback_status?: PlaybackStatus | null;
+  playback_position_seconds?: number;
   audio_filename?: string | null;
   participant_audio?: Record<string, string>;
   participants?: MeetingParticipant[];
@@ -101,4 +104,8 @@ export interface SessionInfo {
   ended_at?: string | null;
   speaker_name?: string | null;
   status?: "upcoming" | "ready" | "live" | "ended";
+  playback_status?: PlaybackStatus | null;
+  playback_position_seconds?: number;
+  duration_seconds?: number | null;
+  is_prerecorded?: boolean;
 }

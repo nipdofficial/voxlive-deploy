@@ -71,6 +71,7 @@ export default function GuestAttendeeScreen({ roomCode, invitation }: { roomCode
   const [feedbackComment, setFeedbackComment] = useState("");
   const [feedbackSent, setFeedbackSent] = useState(false);
   const [speakerMuted, setSpeakerMuted] = useState(false);
+  const [playbackStatus, setPlaybackStatus] = useState<string | null>(null);
 
   const styles = useMemo(() => createStyles(), []);
   const joined = Boolean(client);
@@ -89,6 +90,8 @@ export default function GuestAttendeeScreen({ roomCode, invitation }: { roomCode
   useEffect(() => {
     void getSessionInfo(roomCode, invitation).then((session) => {
       setInfo(session);
+      setPlaybackStatus(session.playback_status ?? null);
+      if (session.is_prerecorded) setElapsed(session.playback_position_seconds ?? 0);
       setStatus(session.status === "upcoming" ? "upcoming" : session.is_started ? session.is_active ? "ready" : "ended" : "waiting");
     }).catch((caught) => {
       setStatus("error");
@@ -97,12 +100,12 @@ export default function GuestAttendeeScreen({ roomCode, invitation }: { roomCode
   }, [roomCode, invitation]);
 
   useEffect(() => {
-    if (!startedAt || status === "ended" || status === "left") return;
+    if (!startedAt || status === "ended" || status === "left" || info?.is_prerecorded) return;
     const updateElapsed = () => setElapsed((Date.now() - startedAt) / 1000);
     updateElapsed();
     const timer = setInterval(updateElapsed, 250);
     return () => clearInterval(timer);
-  }, [startedAt, status]);
+  }, [info?.is_prerecorded, startedAt, status]);
 
   useEffect(() => () => { void client?.disconnect(); }, [client]);
 
@@ -149,6 +152,8 @@ export default function GuestAttendeeScreen({ roomCode, invitation }: { roomCode
     const timer = setInterval(() => {
       void getSessionInfo(roomCode, invitation).then(async (session) => {
         setInfo(session);
+        setPlaybackStatus(session.playback_status ?? null);
+        if (session.is_prerecorded) setElapsed(session.playback_position_seconds ?? 0);
         setStatus(session.status === "upcoming" ? "upcoming" : session.is_started ? session.is_active ? (joined ? "connected" : "ready") : "ended" : "waiting");
         if (session.is_started && !session.is_active) {
           setStatus("ended");
@@ -189,6 +194,13 @@ export default function GuestAttendeeScreen({ roomCode, invitation }: { roomCode
         onTranslation: (segment) => setSegments((current) => upsertLiveSegment(current, segment)),
         onMicStateChange: (state) => setSpeakerMuted(state.muted),
         onLiveIssue: setError,
+        onPlaybackState: (state) => {
+          setPlaybackStatus(state.status);
+          setElapsed(state.position_seconds);
+          if (state.status === "paused") setStatus("paused");
+          if (state.status === "playing") setStatus("connected");
+          if (state.status === "completed" || state.status === "stopped") setStatus("ended");
+        },
         onError: (caught) => setError(caught.message),
       }, { publishMicrophone: false, subscribeAudio: false });
       setClient(nextClient);
@@ -254,8 +266,8 @@ export default function GuestAttendeeScreen({ roomCode, invitation }: { roomCode
           <View style={styles.secureBadge}><Feather name="shield" size={12} color="#55D6A4" /><Text style={styles.secureText}>SECURE ROOM</Text></View>
         </View>
         <LinearGradient colors={["#30245B", "#1A1724", "#18161C"]} start={[0, 0]} end={[1, 1]} style={styles.hero}>
-          <View style={styles.heroTopline}><View style={styles.livePill}><View style={[styles.liveDot, (joined || status === "ready") && styles.liveDotActive]} /><Text style={styles.livePillText}>{joined ? "LIVE NOW" : status === "ended" ? "ENDED" : status === "upcoming" ? "UPCOMING" : "READY TO JOIN"}</Text></View><Text style={styles.roomCode}>ROOM {roomCode}</Text></View>
-          <Text style={styles.eyebrow}>{status === "ended" ? "SESSION DETAILS" : "YOU’RE JOINING"}</Text>
+          <View style={styles.heroTopline}><View style={styles.livePill}><View style={[styles.liveDot, (joined || status === "ready") && styles.liveDotActive]} /><Text style={styles.livePillText}>{info?.is_prerecorded ? playbackStatus === "paused" ? "PRERECORDED · PAUSED" : status === "ended" ? "PRERECORDED · ENDED" : "PRERECORDED SESSION" : joined ? "LIVE NOW" : status === "ended" ? "ENDED" : status === "upcoming" ? "UPCOMING" : "READY TO JOIN"}</Text></View><Text style={styles.roomCode}>ROOM {roomCode}</Text></View>
+          <Text style={styles.eyebrow}>{status === "ended" ? "SESSION DETAILS" : info?.is_prerecorded ? "SYNCHRONIZED TRANSCRIPT PLAYBACK" : "YOU’RE JOINING"}</Text>
           <Text style={styles.title}>{info?.title ?? "Live session"}</Text>
           {info?.speaker_name ? <Text style={styles.speakerLabel}><Feather name="user" size={12} color="#CDBDFF" />  Hosted by {info.speaker_name}</Text> : null}
           {status === "ended" ? <View style={styles.sessionTimes}>

@@ -1,10 +1,43 @@
 import io
 import math
+import re
+import subprocess
 import struct
 import wave
 from collections import deque
+from pathlib import Path
 
 import webrtcvad
+
+
+_DURATION_PATTERN = re.compile(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)")
+
+
+def probe_audio_duration(path: Path) -> float | None:
+    """Return the container's real duration without loading the file into memory."""
+    if path.suffix.lower() == ".wav":
+        try:
+            with wave.open(str(path), "rb") as wav:
+                return wav.getnframes() / wav.getframerate()
+        except (wave.Error, EOFError, ZeroDivisionError):
+            return None
+    try:
+        import imageio_ffmpeg
+
+        process = subprocess.run(
+            [imageio_ffmpeg.get_ffmpeg_exe(), "-hide_banner", "-i", str(path)],
+            capture_output=True,
+            text=True,
+            timeout=20,
+            check=False,
+        )
+        match = _DURATION_PATTERN.search(process.stderr)
+        if not match:
+            return None
+        hours, minutes, seconds = match.groups()
+        return int(hours) * 3600 + int(minutes) * 60 + float(seconds)
+    except (OSError, subprocess.SubprocessError, ImportError):
+        return None
 
 
 class SpeechActivityDetector:

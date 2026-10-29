@@ -10,6 +10,7 @@ export type MeetingCallbacks = {
   onSpeakingChange?: (speaking: boolean) => void;
   onMicStateChange?: (state: { identity: string; name: string; muted: boolean }) => void;
   onLiveIssue?: (message: string | null) => void;
+  onPlaybackState?: (state: { status: string; position_seconds: number; duration_seconds?: number | null; is_prerecorded: boolean }) => void;
   onError: (error: Error) => void;
 };
 

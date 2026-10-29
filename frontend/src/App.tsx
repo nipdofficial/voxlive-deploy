@@ -37,8 +37,8 @@ import {
   useFonts,
 } from "@expo-google-fonts/dm-sans";
 
-import { API_URL, cancelTranscription, createMeeting, deleteTranscript, endMeeting, generateTranscriptSummary, getHistory, getSessionInfo, getTranscript, joinMeeting, renameTranscriptSpeaker, retryTranscription, startMeeting as startMeetingApi, submitAudio, translateTranscript, updateMeetingLanguage, updateTranscript, WS_URL } from "./api";
-import type { Language, MeetingConnection, ProcessingStage, Segment, SessionType, TranscriptRecord, TranscriptSummary } from "./types";
+import { API_URL, cancelTranscription, controlMeetingPlayback, createMeeting, deleteTranscript, endMeeting, generateTranscriptSummary, getHistory, getSessionInfo, getTranscript, joinMeeting, renameTranscriptSpeaker, retryTranscription, startMeeting as startMeetingApi, submitAudio, submitMeetingUpload, translateTranscript, updateMeetingLanguage, updateTranscript, WS_URL } from "./api";
+import type { Language, MeetingConnection, PlaybackStatus, ProcessingStage, Segment, SessionType, TranscriptRecord, TranscriptSummary } from "./types";
 import type { MeetingClient, MeetingParticipantView } from "./livekitMeeting";
 import { requestWebMicrophone, startWebAudioStream, type WebAudioStream } from "./webAudioStream";
 import { useHistoryEvents } from "./hooks/useHistoryEvents";
@@ -99,10 +99,13 @@ function speakerColor(speaker?: string | null) {
 }
 
 const PROCESSING_LABELS: Record<ProcessingStage, string> = {
+  uploading: "Uploading",
   recording: "Recording",
   saving_audio: "Saving audio",
   transcribing: "Transcribing",
+  translating: "Translating to Tamil",
   diarizing: "Identifying speakers",
+  ready: "Ready to start",
 };
 
 const LIVE_CONNECTION_TIMEOUT_MS = 12_000;
@@ -694,6 +697,8 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
   const [meetingMicBusy, setMeetingMicBusy] = useState(false);
   const [meetingSpeakerMuted, setMeetingSpeakerMuted] = useState(false);
   const [meetingError, setMeetingError] = useState<string | null>(null);
+  const [meetingMode, setMeetingMode] = useState<"Record" | "Live" | "Upload">("Live");
+  const [playbackStatus, setPlaybackStatus] = useState<PlaybackStatus | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const meetingAudioSocketRef = useRef<WebSocket | null>(null);
   const webAudioRef = useRef<WebAudioStream | null>(null);
@@ -838,10 +843,11 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
 
   useEffect(() => {
     if (!active) return;
+    if (meetingMode === "Upload") return;
     const started = Date.now() - duration * 1000;
     const timer = setInterval(() => setDuration((Date.now() - started) / 1000), 250);
     return () => clearInterval(timer);
-  }, [active]);
+  }, [active, meetingMode]);
 
   const refreshHistory = useCallback(async () => {
     try {
@@ -867,6 +873,8 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
       setProcessingStage(record.processing_stage ?? null);
       setDuration((current) => record.duration_seconds ?? current);
       setSegments(sortSegments(record.segments));
+      setPlaybackStatus(record.playback_status ?? null);
+      if (record.processing_stage === "ready") setStatus("ready to start");
     }
     if (record.status === "completed" || record.status === "failed") {
       setTrackedJobIds((current) => current.filter((id) => id !== record.id));
@@ -1079,6 +1087,7 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
   useEffect(() => {
     const meetingId = meetingConnection?.meeting_id;
     if (!meetingId || !active) return;
+    if (meetingMode === "Upload") return;
     let cancelled = false;
     const refreshLiveLines = async () => {
       try {
@@ -1106,7 +1115,7 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
       cancelled = true;
       clearInterval(timer);
     };
-  }, [active, meetingConnection?.meeting_id]);
+  }, [active, meetingConnection?.meeting_id, meetingMode]);
 
   const prepareMic = async () => {
     if (Platform.OS === "web") return;
@@ -1231,12 +1240,13 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
     setStatus("stopping");
   };
 
-  const connectToMeeting = async (connection: MeetingConnection, title?: string) => {
+  const connectToMeeting = async (connection: MeetingConnection, title?: string, mode: "Record" | "Live" | "Upload" = connection.start_mode ?? "Live") => {
     // A LiveKit room is always a managed meeting, even when it was started
     // from the "Live" choice in Session Management. Keeping this state as
     // "Live" routes Stop through the legacy WebSocket recorder and leaves
     // the actual meeting running/finalizing in the background.
     setSessionType("Meeting");
+    setMeetingMode(mode);
     setMeetingError(null);
     setMeetingConnection(connection);
     setMeetingCode(connection.room_code);
@@ -1254,11 +1264,17 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
       onSpeakingChange: (speaking) => setVoiceIntensity(speaking ? 0.28 : 0),
       onMicStateChange: (state) => setMeetingSpeakerMuted(state.muted),
       onLiveIssue: setMeetingError,
+      onPlaybackState: (state) => {
+        setPlaybackStatus(state.status as PlaybackStatus);
+        setDuration(state.position_seconds);
+        setStatus(state.status === "playing" ? "prerecorded playback" : state.status);
+        if (state.status === "completed" || state.status === "stopped") setActive(false);
+      },
       onError: (error) => Alert.alert("Meeting", error.message),
     }, { publishMicrophone: false, notifyMicState: connection.is_host });
     meetingClientRef.current = client;
-    if (connection.is_host) await startMeetingAudioCapture(connection);
-    setMeetingMicEnabled(connection.is_host);
+    if (connection.is_host && mode !== "Upload") await startMeetingAudioCapture(connection);
+    setMeetingMicEnabled(connection.is_host && mode !== "Upload");
     setMeetingMicBusy(false);
     if (connection.language) setLanguage(connection.language);
     setActive(true);
@@ -1362,7 +1378,9 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
     setProcessingStage(null);
     setStatus("uploading");
     try {
-      const job = await submitAudio(asset.uri, asset.name, asset.mimeType ?? "audio/mpeg", language, "Upload", diarization, asset.file, undefined, meetingConnection?.is_host ? meetingTitle : undefined);
+      const job = meetingConnection?.is_host && meetingConnection.host_secret
+        ? await submitMeetingUpload(meetingConnection.room_code, meetingConnection.host_secret, asset.uri, asset.name, asset.mimeType ?? "audio/mpeg", language, diarization, asset.file)
+        : await submitAudio(asset.uri, asset.name, asset.mimeType ?? "audio/mpeg", language, "Upload", diarization, asset.file, undefined, meetingConnection?.is_host ? meetingTitle : undefined);
       trackJob(job.id);
       setCurrentRecordId(job.id);
       setStatus("processing");
@@ -1383,27 +1401,46 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
     if (info.status === "upcoming") {
       throw new Error(`This meeting is scheduled for ${new Date(info.scheduled_start || "").toLocaleString()}. You can prepare it now and start when the time arrives.`);
     }
-    setSessionType("Meeting");
+    const mode: "Record" | "Live" | "Upload" = sessionType === "Record" || sessionType === "Upload" ? sessionType : "Live";
+    setMeetingMode(mode);
     setBusy(true);
     setStatus("connecting");
     try {
-      await prepareMeetingMicrophone();
+      if (mode !== "Upload") await prepareMeetingMicrophone();
       await startMeetingApi(
         connection.room_code,
         connection.host_secret ?? "",
-        sessionType === "Record" ? "Record" : "Live",
+        mode,
       );
-      await connectToMeeting(connection, meetingTitle);
+      await connectToMeeting({ ...connection, start_mode: mode }, meetingTitle, mode);
     } catch (error) {
       setBusy(false);
       throw error;
     }
   };
 
+  const toggleUploadPlayback = async () => {
+    const connection = meetingConnection;
+    if (!connection?.is_host || !connection.host_secret) return;
+    const action = playbackStatus === "paused" ? "resume" : "pause";
+    try {
+      const info = await controlMeetingPlayback(connection.room_code, connection.host_secret, action);
+      setPlaybackStatus(info.playback_status ?? null);
+      setDuration(info.playback_position_seconds ?? duration);
+    } catch (error) {
+      Alert.alert("Playback", error instanceof Error ? error.message : "Could not update playback");
+    }
+  };
+
   const handlePrimary = async () => {
     try {
       if (meetingConnection?.is_host && active) return await stopMeeting();
-      if (meetingConnection?.is_host && !active && sessionType !== "Upload") return await startCreatedMeeting();
+      if (meetingConnection?.is_host && !active && sessionType === "Upload") {
+        const prepared = history.find((record) => record.id === meetingConnection.meeting_id);
+        if (prepared?.processing_stage === "ready" && prepared.segments.length) return await startCreatedMeeting();
+        return await chooseUpload();
+      }
+      if (meetingConnection?.is_host && !active) return await startCreatedMeeting();
       if (sessionType === "Meeting") return active ? await stopMeeting() : await startMeeting(false);
       if (active) return sessionType === "Live" || sessionType === "Record" ? await stopLive() : await stopMeeting();
       if (sessionType === "Upload") return await chooseUpload();
@@ -1428,7 +1465,7 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
 
   const primaryLabel = active
     ? sessionType === "Meeting" && !meetingConnection?.is_host ? "Leave meeting" : sessionType === "Meeting" ? "End meeting" : "Stop session"
-    : sessionType === "Upload" ? "Choose audio file" : sessionType === "Live" ? meetingConnection?.is_host ? "Start live meeting" : "Start live transcription" : sessionType === "Meeting" ? "Create meeting" : "Start recording";
+    : sessionType === "Upload" ? (meetingConnection?.is_host && playbackStatus === "ready" ? "Start prerecorded session" : "Choose audio file") : sessionType === "Live" ? meetingConnection?.is_host ? "Start live meeting" : "Start live transcription" : sessionType === "Meeting" ? "Create meeting" : "Start recording";
   const shownDuration = duration;
   const displayedSegments = selected?.segments ?? [];
   const liveMeetingRecord: TranscriptRecord | null = meetingConnection && sessionType === "Meeting"
@@ -1476,7 +1513,7 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
                 accessibilityState={{ checked: sessionType === item.value }}
                 onHoverIn={() => setHoveredSidebarItem(item.value)}
                 onHoverOut={() => setHoveredSidebarItem((current) => (current === item.value ? null : current))}
-                onPress={() => { setSessionType(item.value); setTab("new"); setSelected(null); }}
+                onPress={() => { setSessionType(item.value); if (item.value !== "Meeting") setMeetingMode(item.value); setTab("new"); setSelected(null); }}
                 style={({ pressed }) => [
                   styles.iconSidebarButton,
                   sessionType === item.value && styles.iconSidebarButtonActive,
@@ -1539,7 +1576,7 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
           isDark={isDark}
           authToken={authToken ?? ""}
           onOpenCreatedSession={async (connection, title, mode = "Live") => {
-            await prepareMeetingMicrophone();
+            if (mode !== "Upload") await prepareMeetingMicrophone();
             setCurrentRecordId(null);
             setProcessingStage(null);
             setDuration(0);
@@ -1549,6 +1586,8 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
             setMeetingTitle(title);
             setLanguage(connection.language ?? "Mixed");
             setSessionType(mode);
+            setMeetingMode(mode);
+            setPlaybackStatus(null);
             setTab("new");
             setMeetingConnection(connection);
             setMeetingParticipants([]);
@@ -1556,7 +1595,7 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
             setStatus("ready");
             setActive(false);
             setBusy(false);
-            await connectToMeeting(connection, title);
+            await connectToMeeting({ ...connection, start_mode: mode }, title, mode);
           }}
           onStartCreatedSession={async (connection, title, mode = "Live") => {
             setCurrentRecordId(null);
@@ -1570,6 +1609,8 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
             // Creating a QR room must not implicitly start microphone capture.
             // Stage the organizer in the ready screen so Record, Live, or Upload can be chosen.
             setSessionType(mode);
+            setMeetingMode(mode);
+            setPlaybackStatus(connection.start_mode === "Upload" ? "preparing" : null);
             setTab("new");
             setMeetingConnection(connection);
             setMeetingParticipants([]);
@@ -1716,7 +1757,7 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
                   </View>
                   <View style={styles.autoLanguageActions}>
                     <View style={styles.autoLanguageBadge}><Text style={styles.autoLanguageBadgeText}>{language === "Mixed" ? "AUTO" : "SET"}</Text></View>
-                    {meetingConnection?.is_host && active ? <Pressable accessibilityRole="button" accessibilityLabel={meetingMicEnabled ? "Mute microphone" : "Unmute microphone"} accessibilityState={{ disabled: meetingMicBusy }} disabled={meetingMicBusy} onPress={() => void toggleMeetingMicrophone()} style={[styles.micToggleButton, !meetingMicEnabled && styles.micToggleButtonMuted, meetingMicBusy && { opacity: 0.65 }]}><Feather name={meetingMicBusy ? "loader" : meetingMicEnabled ? "mic" : "mic-off"} size={15} color="white" /><Text style={styles.micToggleText}>{meetingMicBusy ? "Updating mic…" : meetingMicEnabled ? "Mute mic" : "Unmute mic"}</Text></Pressable> : null}
+                    {meetingConnection?.is_host && active && meetingMode !== "Upload" ? <Pressable accessibilityRole="button" accessibilityLabel={meetingMicEnabled ? "Mute microphone" : "Unmute microphone"} accessibilityState={{ disabled: meetingMicBusy }} disabled={meetingMicBusy} onPress={() => void toggleMeetingMicrophone()} style={[styles.micToggleButton, !meetingMicEnabled && styles.micToggleButtonMuted, meetingMicBusy && { opacity: 0.65 }]}><Feather name={meetingMicBusy ? "loader" : meetingMicEnabled ? "mic" : "mic-off"} size={15} color="white" /><Text style={styles.micToggleText}>{meetingMicBusy ? "Updating mic…" : meetingMicEnabled ? "Mute mic" : "Unmute mic"}</Text></Pressable> : null}
                   </View>
                 </View>
               </View>
@@ -1725,7 +1766,7 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
                 <SectionTitle number="02" title="How would you like to begin?" styles={styles} />
                 <View style={[styles.sessionGrid, !isWide && width < 540 && styles.sessionGridStack]}>
                   {availableSessionTypes.map((item) => (
-                    <Pressable key={item.value} accessibilityRole="radio" accessibilityLabel={`${item.label}. ${item.hint}`} accessibilityState={{ checked: sessionType === item.value, disabled: active || busy }} disabled={active || busy} onPress={() => setSessionType(item.value)} style={({ pressed }) => [styles.sessionCard, sessionType === item.value && styles.sessionCardActive, (active || busy) && { opacity: 0.55 }, pressed && { opacity: 0.8 }]}>
+                    <Pressable key={item.value} accessibilityRole="radio" accessibilityLabel={`${item.label}. ${item.hint}`} accessibilityState={{ checked: sessionType === item.value, disabled: active || busy }} disabled={active || busy} onPress={() => { setSessionType(item.value); if (item.value !== "Meeting") setMeetingMode(item.value); }} style={({ pressed }) => [styles.sessionCard, sessionType === item.value && styles.sessionCardActive, (active || busy) && { opacity: 0.55 }, pressed && { opacity: 0.8 }]}>
                       <View style={[styles.sessionIcon, sessionType === item.value && styles.sessionIconActive]}><Feather name={item.icon} size={20} color={sessionType === item.value ? "white" : "#9A95A8"} /></View>
                       <Text style={[styles.sessionLabel, sessionType === item.value && styles.sessionLabelActive]}>{item.label}</Text>
                       <Text style={styles.sessionHint}>{item.hint}</Text>
@@ -1740,7 +1781,13 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
                   <Text style={styles.primaryText}>{busy && !active ? status : active ? `${primaryLabel} · ${formatTime(shownDuration)}` : primaryLabel}</Text>
                 </LinearGradient>
               </Pressable>
-              <View style={styles.privacyRow}><Feather name="shield" size={13} color="#716C7F" /><Text style={styles.privacyText}>Your audio is sent to VoxLive for transcription.</Text></View>
+              {meetingConnection?.is_host && active && meetingMode === "Upload" ? (
+                <Pressable accessibilityRole="button" onPress={() => void toggleUploadPlayback()} style={styles.playbackControl}>
+                  <Feather name={playbackStatus === "paused" ? "play" : "pause"} size={16} color="#D8CDF8" />
+                  <Text style={styles.playbackControlText}>{playbackStatus === "paused" ? "Resume shared playback" : "Pause shared playback"}</Text>
+                </Pressable>
+              ) : null}
+              <View style={styles.privacyRow}><Feather name="shield" size={13} color="#716C7F" /><Text style={styles.privacyText}>{meetingMode === "Upload" && meetingConnection ? "Prepared transcript playback follows the recording timeline; attendee audio is not shared in this release." : "Your audio is sent to VoxLive for transcription."}</Text></View>
             </View>
 
             <TranscriptPanel segments={segments} interimText={interimText} interimLanguage={interimLanguage} active={active} status={status} processingStage={processingStage} duration={shownDuration} intensity={voiceIntensity} exportRecord={currentExportRecord} copied={copiedRecordId === currentRecordId} exportBusy={exporting?.id === currentRecordId ? exporting.kind : null} onCopy={(record) => void copyTranscript(record)} onSaveTranscript={(record) => void saveTranscript(record)} summarizing={summarizingRecordId === currentRecordId} summaryCopied={copiedSummaryRecordId === currentRecordId} onGenerateSummary={(record) => void generateSummary(record)} onCopySummary={(summary) => { if (currentRecordId) void copySummary(currentRecordId, summary); }} onSaveSummary={(record) => void saveSummary(record)} onUpdateRecord={(record, next) => void editTranscriptSegments(record, next)} onRenameSpeaker={(record, oldName, newName) => void renameSpeaker(record, oldName, newName)} onTranslate={(record, target) => void translateRecord(record, target)} translating={translatingRecordId === currentRecordId} errorMessage={meetingError} styles={styles} />
@@ -1831,6 +1878,7 @@ function createStyles(isDark: boolean, width: number) {
     toggleCard: { minHeight: 74, padding: 14, borderRadius: 15, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface, flexDirection: "row", alignItems: "center" }, toggleIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: c.purpleSurface, alignItems: "center", justifyContent: "center", marginRight: 12 }, toggleText: { flex: 1 }, toggleTitle: { color: c.softText, fontFamily: "DMSans_600SemiBold", fontSize: 13 }, toggleHint: { color: c.faint, fontFamily: "DMSans_400Regular", fontSize: 10, marginTop: 3 },
     meetingCard: { gap: 11, padding: 14, borderRadius: 15, borderWidth: 1, borderColor: c.border, backgroundColor: c.surface }, meetingHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" }, roomCode: { color: c.purpleText, fontFamily: "DMSans_700Bold", fontSize: 15, letterSpacing: 1.5 }, meetingInput: { height: 44, borderRadius: 11, borderWidth: 1, borderColor: c.border, backgroundColor: c.raised, color: c.text, paddingHorizontal: 13, fontFamily: "DMSans_500Medium", fontSize: 12 }, meetingJoinRow: { flexDirection: "row", gap: 9 }, meetingCodeInput: { flex: 1, letterSpacing: 1.3 }, joinButton: { width: 86, borderRadius: 11, backgroundColor: c.purpleSurface, borderWidth: 1, borderColor: c.strongBorder, alignItems: "center", justifyContent: "center" }, joinButtonText: { color: c.purpleText, fontFamily: "DMSans_700Bold", fontSize: 11 }, participantList: { flexDirection: "row", flexWrap: "wrap", gap: 8 }, participantChip: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 9, height: 30, borderRadius: 15, backgroundColor: c.raised }, participantText: { color: c.body, fontFamily: "DMSans_500Medium", fontSize: 10 },
     primaryWrap: { borderRadius: 14, overflow: "hidden", marginTop: 0 }, primaryButton: { height: 55, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10 }, primaryText: { color: "white", fontFamily: "DMSans_600SemiBold", fontSize: 14 }, privacyRow: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 6, marginTop: 0 }, privacyText: { color: c.faint, fontFamily: "DMSans_400Regular", fontSize: 8.5, textAlign: "center" },
+    playbackControl: { height: 44, borderRadius: 12, borderWidth: 1, borderColor: c.strongBorder, backgroundColor: c.raised, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 }, playbackControlText: { color: c.body, fontFamily: "DMSans_600SemiBold", fontSize: 12 },
     transcriptCard: { flex: 1, minHeight: 535, borderRadius: 20, borderWidth: 1, borderColor: c.border, backgroundColor: c.panel, overflow: "hidden" }, transcriptHeader: { height: 88, paddingHorizontal: 22, flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderBottomWidth: 1, borderBottomColor: c.border }, panelEyebrow: { color: c.faint, fontFamily: "DMSans_700Bold", fontSize: 8, letterSpacing: 1.7 }, panelTitle: { color: c.softText, fontFamily: "DMSans_600SemiBold", fontSize: 15, marginTop: 5 }, liveBadge: { paddingHorizontal: 10, height: 25, borderRadius: 12.5, backgroundColor: "rgba(229,72,103,0.13)", flexDirection: "row", alignItems: "center", gap: 6 }, idleBadge: { backgroundColor: c.raised }, liveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: "#F15E78" }, idleDot: { backgroundColor: c.muted }, liveText: { color: "#E0526D", fontFamily: "DMSans_700Bold", fontSize: 8, letterSpacing: 1 }, idleText: { color: c.muted },
     waveform: { height: 78, marginHorizontal: 22, marginTop: 14, paddingHorizontal: 10, borderRadius: 16, borderWidth: 1, borderColor: c.border, backgroundColor: c.raised, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 3 }, waveBar: { width: 3, borderRadius: 3, backgroundColor: "#9F7AEA" }, timelineRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingHorizontal: 22, paddingTop: 10, paddingBottom: 14 }, timeText: { color: c.faint, fontFamily: "DMSans_500Medium", fontSize: 8 }, timeline: { flex: 1, height: 1, backgroundColor: c.border }, transcriptScroll: { flex: 1, borderTopWidth: 1, borderTopColor: c.border }, transcriptContent: { flexGrow: 1, padding: 22 }, emptyTranscript: { flex: 1, minHeight: 230, alignItems: "center", justifyContent: "center", paddingHorizontal: 32 }, emptyIcon: { width: 55, height: 55, borderRadius: 27.5, backgroundColor: c.raised, alignItems: "center", justifyContent: "center", marginBottom: 14 }, emptyTitle: { color: c.body, fontFamily: "DMSans_600SemiBold", fontSize: 13 }, emptyCopy: { color: c.faint, fontFamily: "DMSans_400Regular", fontSize: 10.5, lineHeight: 16, textAlign: "center", marginTop: 6 }, segmentRow: { flexDirection: "row", marginBottom: 19 }, segmentTime: { width: 42, color: c.faint, fontFamily: "DMSans_500Medium", fontSize: 9, paddingTop: 2 }, speakerLine: { width: 2, borderRadius: 2, marginRight: 12 }, segmentBody: { flex: 1 }, segmentMeta: { flexDirection: "row", alignItems: "center", gap: 7, marginBottom: 4 }, speakerName: { fontFamily: "DMSans_700Bold", fontSize: 9, textTransform: "uppercase", letterSpacing: 0.7 }, languageTag: { color: c.faint, backgroundColor: c.raised, borderRadius: 7, overflow: "hidden", paddingHorizontal: 6, paddingVertical: 2, fontFamily: "DMSans_600SemiBold", fontSize: 7.5, textTransform: "uppercase", letterSpacing: 0.5 }, segmentText: { color: c.body, fontFamily: "DMSans_400Regular", fontSize: 12.5, lineHeight: 19 },
     segmentUncertain: { paddingHorizontal: 6, backgroundColor: "rgba(245,158,11,0.10)", borderWidth: 1, borderColor: "rgba(245,158,11,0.25)" }, uncertainTag: { color: "#D99115", fontFamily: "DMSans_700Bold", fontSize: 7.5 }, translatedText: { color: c.purpleText, fontFamily: "DMSans_400Regular", fontSize: 11.5, lineHeight: 18, marginTop: 5, paddingLeft: 8, borderLeftWidth: 2, borderLeftColor: "#755BD0" }, sourceText: { color: c.faint, fontFamily: "DMSans_400Regular", fontSize: 10.5, lineHeight: 16, marginTop: 4, opacity: 0.75 }, segmentEditRow: { flexDirection: "row", alignItems: "center", gap: 8 }, segmentEditInput: { flex: 1, minHeight: 42, padding: 8, borderRadius: 8, borderWidth: 1, borderColor: c.strongBorder, color: c.body, backgroundColor: c.raised, fontFamily: "DMSans_400Regular", fontSize: 12 }, segmentEditSave: { width: 34, height: 34, borderRadius: 9, alignItems: "center", justifyContent: "center", backgroundColor: "#755BD0" },

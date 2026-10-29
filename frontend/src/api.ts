@@ -261,13 +261,70 @@ export async function endMeeting(roomCode: string, hostSecret: string): Promise<
   return response.json();
 }
 
-export async function startMeeting(roomCode: string, hostSecret: string, startMode: "Record" | "Live"): Promise<SessionInfo> {
+export async function startMeeting(roomCode: string, hostSecret: string, startMode: "Record" | "Live" | "Upload"): Promise<SessionInfo> {
   const response = await authenticatedFetch(`${API_URL}/meetings/${encodeURIComponent(roomCode.trim().toUpperCase())}/start`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ host_secret: hostSecret, start_mode: startMode }),
   });
   if (!response.ok) throw new Error((await response.text()) || "Could not start meeting");
+  return response.json();
+}
+
+export async function submitMeetingUpload(
+  roomCode: string,
+  hostSecret: string,
+  uri: string,
+  name: string,
+  mimeType: string,
+  language: Language,
+  diarization: boolean,
+  browserFile?: Blob,
+  durationSeconds?: number,
+): Promise<{ id: string; status: string }> {
+  const form = new FormData();
+  if (browserFile && browserFile.size > 0) {
+    form.append("file", browserFile, name);
+  } else if (uri.startsWith("blob:")) {
+    const response = await fetch(uri);
+    const blob = await response.blob();
+    if (!blob.size) throw new Error("The selected audio file is empty");
+    form.append("file", blob, name);
+  } else if (Platform.OS !== "web") {
+    form.append("file", new ExpoFile(uri), name);
+  } else {
+    throw new Error("The selected audio file could not be read");
+  }
+  form.append("host_secret", hostSecret);
+  form.append("language", language);
+  form.append("diarization", String(diarization));
+  if (durationSeconds && durationSeconds > 0) form.append("duration_seconds", String(durationSeconds));
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 180_000);
+  try {
+    const response = await authenticatedFetch(`${API_URL}/meetings/${encodeURIComponent(roomCode)}/upload`, {
+      method: "POST",
+      body: form,
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error((await response.text()) || "Upload failed");
+    return response.json();
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+export async function controlMeetingPlayback(
+  roomCode: string,
+  hostSecret: string,
+  action: "pause" | "resume" | "stop",
+): Promise<SessionInfo> {
+  const response = await authenticatedFetch(`${API_URL}/meetings/${encodeURIComponent(roomCode)}/playback`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ host_secret: hostSecret, action }),
+  });
+  if (!response.ok) throw new Error((await response.text()) || `Could not ${action} playback`);
   return response.json();
 }
 

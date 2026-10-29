@@ -82,7 +82,12 @@ async def _recover_file_jobs() -> None:
     """Requeue persisted Record/Upload work after an API restart."""
     settings = get_settings()
     for record in await history.all_history():
-        if record.session_type not in (SessionType.record, SessionType.upload):
+        is_file_job = record.session_type in (SessionType.record, SessionType.upload)
+        is_meeting_upload = (
+            record.session_type == SessionType.meeting
+            and record.start_mode == SessionType.upload
+        )
+        if not is_file_job and not is_meeting_upload:
             continue
         if record.status not in (JobStatus.queued, JobStatus.processing):
             continue
@@ -110,12 +115,19 @@ async def _recover_stale_meeting_jobs() -> None:
         for session in meeting_registry.sessions.values()
         if session.started and not session.ending
     }
+    recoverable_upload_ids = {
+        session.record.id
+        for session in meeting_registry.sessions.values()
+        if session.record.start_mode == SessionType.upload and not session.ending
+    }
     for record in await history.all_history():
         if record.session_type != SessionType.meeting:
             continue
         if record.status not in (JobStatus.queued, JobStatus.processing):
             continue
         if record.id in active_record_ids:
+            continue
+        if record.id in recoverable_upload_ids:
             continue
         if record.status == JobStatus.queued and record.scheduled_start and record.scheduled_start > now:
             continue

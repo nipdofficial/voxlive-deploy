@@ -27,10 +27,22 @@ class JobStatus(str, Enum):
 
 
 class ProcessingStage(str, Enum):
+    uploading = "uploading"
     recording = "recording"
     saving_audio = "saving_audio"
     transcribing = "transcribing"
+    translating = "translating"
     diarizing = "diarizing"
+    ready = "ready"
+
+
+class PlaybackStatus(str, Enum):
+    preparing = "preparing"
+    ready = "ready"
+    playing = "playing"
+    paused = "paused"
+    completed = "completed"
+    stopped = "stopped"
 
 
 class SpokenLanguage(str, Enum):
@@ -113,6 +125,8 @@ class TranscriptRecord(BaseModel):
     transcript: str = ""
     segments: list[TranscriptSegment] = Field(default_factory=list)
     duration_seconds: float | None = None
+    playback_status: PlaybackStatus | None = None
+    playback_position_seconds: float = Field(default=0, ge=0)
     audio_filename: str | None = None
     participant_audio: dict[str, str] = Field(default_factory=dict)
     participants: list[MeetingParticipant] = Field(default_factory=list)
@@ -214,6 +228,10 @@ class SessionInfo(BaseModel):
     ended_at: datetime | None = None
     speaker_name: str | None = None
     status: str = "ready"
+    playback_status: PlaybackStatus | None = None
+    playback_position_seconds: float = 0
+    duration_seconds: float | None = None
+    is_prerecorded: bool = False
 
 
 class MeetingEnd(BaseModel):
@@ -226,9 +244,14 @@ class MeetingStart(BaseModel):
 
     @model_validator(mode="after")
     def validate_start_mode(self) -> "MeetingStart":
-        if self.start_mode not in {SessionType.record, SessionType.live}:
-            raise ValueError("start_mode must be Record or Live when starting a room")
+        if self.start_mode not in {SessionType.record, SessionType.live, SessionType.upload}:
+            raise ValueError("start_mode must be Record, Live, or Upload when starting a room")
         return self
+
+
+class PlaybackControl(BaseModel):
+    host_secret: str = Field(min_length=1)
+    action: str = Field(pattern="^(pause|resume|stop)$")
 
 
 class MeetingUpdate(BaseModel):

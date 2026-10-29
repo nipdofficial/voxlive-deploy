@@ -16,11 +16,12 @@ from app.models.schemas import (
     JobAccepted,
     JobStatus,
     Language,
+    PlaybackStatus,
     ProcessingStage,
     SessionType,
     TranscriptRecord,
 )
-from app.services.audio_service import wav_contains_speech, wav_rms
+from app.services.audio_service import probe_audio_duration, wav_contains_speech, wav_rms
 from app.services.diarization_service import diarize_file, merge_transcript_and_speakers
 from app.services.gemini_service import GeminiService
 
@@ -126,9 +127,13 @@ async def _process(record: TranscriptRecord, path: Path, mime_type: str) -> None
     await save_record(record)
     try:
         audio = await asyncio.to_thread(path.read_bytes)
-        known_duration = record.duration_seconds
+        known_duration = record.duration_seconds or await asyncio.to_thread(
+            probe_audio_duration, path
+        )
         if known_duration is None and path.suffix.lower() == ".wav":
             known_duration = _wav_duration(audio)
+        if known_duration is not None:
+            record.duration_seconds = known_duration
         gemini = GeminiService()
         energy = wav_rms(audio) if path.suffix.lower() == ".wav" else None
         settings = get_settings()
@@ -150,14 +155,33 @@ async def _process(record: TranscriptRecord, path: Path, mime_type: str) -> None
                 if record.diarization
                 else None
             )
+            is_upload = record.session_type == SessionType.upload or (
+                record.session_type == SessionType.meeting
+                and record.start_mode == SessionType.upload
+            )
             transcript = await gemini.transcribe_file(
                 audio,
                 mime_type,
                 record.language,
+                # Upload playback requires genuine model-provided audio
+                # timestamps. The plain transcribe endpoint returns only one
+                # unaligned text block, so use the structured audio model.
+                model=getattr(settings, "gemini_text_model", None) if is_upload else None,
                 include_speakers=record.diarization,
                 audio_duration_seconds=known_duration,
             )
-        record.segments = transcript
+        record.segments = [
+            segment.model_copy(
+                update={
+                    "segment_id": segment.segment_id or f"{record.id}:{index}",
+                    "sequence": index,
+                    "is_final": True,
+                }
+            )
+            for index, segment in enumerate(transcript, start=1)
+            if segment.end >= segment.start
+            and (known_duration is None or segment.start < known_duration)
+        ]
         if record.diarization and transcript:
             record.processing_stage = ProcessingStage.diarizing
             await save_record(record)
@@ -177,12 +201,18 @@ async def _process(record: TranscriptRecord, path: Path, mime_type: str) -> None
                     record.diarization = False
                     record.error = f"Speaker diarization unavailable: {exc}"
         if (
-            record.session_type in {SessionType.upload, SessionType.record}
+            (
+                record.session_type in {SessionType.upload, SessionType.record}
+                or (
+                    record.session_type == SessionType.meeting
+                    and record.start_mode == SessionType.upload
+                )
+            )
             and getattr(settings, "auto_translate", False)
             and record.segments
             and any(not item.translated_text for item in record.segments)
         ):
-            record.processing_stage = ProcessingStage.transcribing
+            record.processing_stage = ProcessingStage.translating
             await save_record(record)
             try:
                 translations = await gemini.translate_segments(
@@ -217,7 +247,11 @@ async def _process(record: TranscriptRecord, path: Path, mime_type: str) -> None
             for segment in record.segments
         )
         record.status = JobStatus.completed
-        record.processing_stage = None
+        if record.session_type == SessionType.meeting and record.start_mode == SessionType.upload:
+            record.playback_status = PlaybackStatus.ready
+            record.processing_stage = ProcessingStage.ready
+        else:
+            record.processing_stage = None
     except asyncio.CancelledError:
         record.status = JobStatus.failed
         record.processing_stage = None
