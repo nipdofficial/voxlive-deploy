@@ -2,6 +2,7 @@
   "expo": {
     "name": "VoxLive",
     "slug": "helascribe",
+    "description": "VoxLive provides intelligent speech transcription and real-time Tamil translation for meetings, presentations, education, and multilingual discussions.",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
