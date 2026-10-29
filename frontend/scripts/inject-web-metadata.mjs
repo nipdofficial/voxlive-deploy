@@ -9,7 +9,7 @@ let html = await readFile(indexPath, "utf8");
 if (!html.includes('name="description"')) {
   html = html.replace(
     "<title>VoxLive</title>",
-    `<title>VoxLive — AI Speech Transcription & Tamil Translation</title>\n    <meta name="description" content="${description}" />\n    <meta name="theme-color" content="#0B0812" />\n    <meta property="og:title" content="VoxLive — Every Voice. Every Language. One Understanding." />\n    <meta property="og:description" content="${description}" />\n    <meta property="og:type" content="website" />`,
+    `<title>VoxLive</title>\n    <meta name="description" content="${description}" />\n    <meta name="theme-color" content="#0B0812" />\n    <meta property="og:title" content="VoxLive — Every Voice. Every Language. One Understanding." />\n    <meta property="og:description" content="${description}" />\n    <meta property="og:type" content="website" />`,
   );
 }
 
