@@ -575,7 +575,7 @@ async def live_transcription(websocket: WebSocket) -> None:
 
         async def process_fallback_chunk(chunk: bytes, offset: float) -> None:
             if not contains_speech(
-                chunk, sample_rate, settings.live_voice_rms_threshold
+                chunk, start.sample_rate, settings.live_voice_rms_threshold
             ):
                 return
             segments = await _transcribe_live_chunk(
