@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     gemini_retry_base_seconds: float = 1.0
     gemini_live_timeout_seconds: float = 30.0
     gemini_batch_timeout_seconds: float = 90.0
+    # The generateContent chunk preview is the reliable live-caption path for
+    # this deployment. The native Live API handshake can succeed while
+    # returning no input transcription events for this model/account.
+    live_native_api_enabled: bool = False
     # Gemini Live accepts small continuous PCM frames. The retained full
     # recording is still transcribed after Stop for accuracy and diarization.
     live_stream_chunk_ms: int = 100

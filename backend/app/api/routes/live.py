@@ -439,25 +439,27 @@ async def live_transcription(websocket: WebSocket) -> None:
         transcription_config = {"mode": "VERBATIM"}
         if live_language_codes:
             transcription_config["language_codes"] = live_language_codes
-        try:
-            live_connect = gemini.client.aio.live.connect(
-                model=settings.gemini_live_model,
-                config=types.LiveConnectConfig(
-                    response_modalities=["TEXT"],
-                    input_audio_transcription=types.AudioTranscriptionConfig(**transcription_config),
-                ),
-            )
-            live_session = await live_connect.__aenter__()
-            live_entered = True
-        except Exception as exc:
-            # Some Vertex projects do not yet have Gemini Live model access.
-            # Keep the WebSocket and recording alive using the existing
-            # generateContent chunk path rather than failing before audio is
-            # processed. The final full-audio pass remains authoritative.
-            logger.warning("Gemini Live unavailable; using chunk preview fallback: %s", exc)
-            record.error = f"Live preview fallback active: {exc}"
-            live_connect = None
-            live_session = None
+        if getattr(settings, "live_native_api_enabled", False):
+            try:
+                live_connect = gemini.client.aio.live.connect(
+                    model=settings.gemini_live_model,
+                    config=types.LiveConnectConfig(
+                        response_modalities=["TEXT"],
+                        input_audio_transcription=types.AudioTranscriptionConfig(**transcription_config),
+                    ),
+                )
+                live_session = await live_connect.__aenter__()
+                live_entered = True
+            except Exception as exc:
+                logger.warning("Gemini Live unavailable; using chunk preview fallback: %s", exc)
+                record.error = f"Live preview fallback active: {exc}"
+                live_connect = None
+                live_session = None
+        else:
+            # Use the reliable one-second audio path by default. It returns
+            # source captions and Tamil translation during capture instead of
+            # waiting for the Stop button when the native stream emits no text.
+            logger.info("Using Gemini chunk preview for live captions")
         queue: asyncio.Queue[tuple[bytes, float] | None] = asyncio.Queue(
             maxsize=max(4, getattr(settings, "live_preview_queue_size", 50))
         )
