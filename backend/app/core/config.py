@@ -30,8 +30,9 @@ class Settings(BaseSettings):
     # Gemini Live API uses a different model family from generateContent.
     # The transcribe-preview model is not accepted by the Live API and closes
     # the websocket with INVALID_ARGUMENT/1007.
-    # Gemini 3.8 Live provides low-latency multilingual transcription and
-    # automatic language switching for Mix mode.
+    # This Vertex project currently exposes the dedicated 3.5 transcription
+    # endpoint. Gemini 3.8 Live must not be configured until model access is
+    # granted; an unavailable model silently pushes sessions to the fallback.
     gemini_live_model: str = "gemini-3.5-transcribe-live"
     # Use the generally available multimodal Flash model for live speech.
     # The transcribe preview endpoint was returning RESOURCE_EXHAUSTED for
@@ -46,7 +47,7 @@ class Settings(BaseSettings):
     # Live text translation must fail fast so one delayed provider response
     # cannot hold every following meeting caption behind it. The completed
     # recording still receives the slower, authoritative batch pass.
-    gemini_live_translation_timeout_seconds: float = 12.0
+    gemini_live_translation_timeout_seconds: float = 6.0
     gemini_batch_timeout_seconds: float = 90.0
     # The generateContent chunk preview is the reliable live-caption path for
     # this deployment. The native Live API handshake can succeed while
@@ -57,19 +58,22 @@ class Settings(BaseSettings):
     live_stream_chunk_ms: int = 100
     # Keep meeting captions responsive: a short window is sent while people
     # speak, while a small overlap still gives Gemini enough sentence context.
-    live_chunk_seconds: float = 2.5
-    live_chunk_overlap_seconds: float = 0.4
+    live_chunk_seconds: float = 1.5
+    live_chunk_overlap_seconds: float = 0.2
     live_stop_preview_grace_seconds: float = 8.0
-    live_preview_queue_size: int = 50
-    live_silence_rms_threshold: float = 20.0
+    live_preview_queue_size: int = 12
+    live_silence_rms_threshold: float = 40.0
     # 16-bit PCM RMS below this level is treated as mic/room noise in live mode.
-    live_voice_rms_threshold: float = 180.0
+    live_voice_rms_threshold: float = 220.0
     # Live model output is only trusted shortly after the mic carried voice-level audio.
     # Gemini Live can emit speculative text after the speaker stops. Keep the
     # acceptance window short so silence cannot become a new caption.
     # Gemini can emit a speculative final after input stops. Keep this window
     # short so silence cannot become a new live caption.
-    live_voice_activity_window_seconds: float = 8.0
+    live_voice_activity_window_seconds: float = 2.0
+    # Bias recognition toward product and regional terms without restricting
+    # automatic mixed-language detection. Comma-separated for simple env use.
+    live_custom_vocabulary: str = "VoxLive,Sri Lanka,Sinhala,Tamil"
     live_finalize_full_audio: bool = True
     max_live_minutes: float = 120.0
     max_upload_mb: int = 20

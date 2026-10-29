@@ -4,7 +4,6 @@ import re
 import subprocess
 import struct
 import wave
-from collections import deque
 from pathlib import Path
 
 import webrtcvad
@@ -51,10 +50,11 @@ class SpeechActivityDetector:
         self.frame_bytes = sample_rate // 50 * 2  # 20 ms, mono PCM16
         self.pending = bytearray()
         self.vad = webrtcvad.Vad(3)
-        # One isolated click or burst should not unlock a generative model.
-        # Require 3 voiced frames in a rolling 100 ms window, then retain a
-        # short hangover so unvoiced consonants and natural pauses survive.
-        self.recent_frames: deque[bool] = deque(maxlen=5)
+        # One isolated click or burst must not unlock a generative model.
+        # Require sustained speech across 100 ms. A short pre-roll in the
+        # caller preserves initial consonants once this gate opens.
+        self.consecutive_voice_frames = 0
+        self.noise_rms = 0.0
         self.hangover_frames = 0
 
     def feed(self, pcm: bytes) -> bool:
@@ -65,12 +65,22 @@ class SpeechActivityDetector:
         while offset + self.frame_bytes <= len(self.pending):
             frame = bytes(self.pending[offset : offset + self.frame_bytes])
             offset += self.frame_bytes
-            voiced = pcm_rms(frame) >= self.energy_floor and self.vad.is_speech(
-                frame, self.sample_rate
+            energy = pcm_rms(frame)
+            vad_speech = self.vad.is_speech(frame, self.sample_rate)
+            if not vad_speech:
+                # Learn the room floor only from frames WebRTC considers
+                # non-speech. This follows changing fan/air-conditioner noise
+                # without allowing a loud voice to raise its own threshold.
+                self.noise_rms = energy if not self.noise_rms else (
+                    self.noise_rms * 0.92 + energy * 0.08
+                )
+            adaptive_floor = max(self.energy_floor, self.noise_rms * 2.4)
+            voiced = energy >= adaptive_floor and vad_speech
+            self.consecutive_voice_frames = (
+                self.consecutive_voice_frames + 1 if voiced else 0
             )
-            self.recent_frames.append(voiced)
-            if sum(self.recent_frames) >= 3:
-                self.hangover_frames = 15  # 300 ms at 20 ms per frame
+            if self.consecutive_voice_frames >= 5:
+                self.hangover_frames = 12  # 240 ms at 20 ms per frame
             elif self.hangover_frames:
                 self.hangover_frames -= 1
             active = active or self.hangover_frames > 0

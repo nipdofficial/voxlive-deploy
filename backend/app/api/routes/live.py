@@ -75,13 +75,34 @@ def _live_language(value: str | None) -> str | None:
 
 def _live_language_codes(language: Language, preferred: Language | None = None) -> list[str]:
     """Return BCP-47 hints, constrained to VoxLive's supported input modes."""
-    return {
+    explicit = {
         Language.sinhala: ["si-LK"],
         Language.tamil: ["ta-IN"],
         Language.english: ["en-US"],
         # Leave Mix mode unrestricted so Gemini can detect any language.
         Language.mixed: [],
     }[language]
+    if explicit or preferred is None:
+        return explicit
+    # In Mixed mode this is a recognition hint, not a language restriction.
+    return {
+        Language.sinhala: ["si-LK"],
+        Language.tamil: ["ta-IN"],
+        Language.english: ["en-US"],
+    }.get(preferred, [])
+
+
+def _stable_interim(previous: str, current: str) -> str | None:
+    """Return only text that survived two consecutive provider hypotheses."""
+    old = " ".join(previous.strip().split())
+    new = " ".join(current.strip().split())
+    if len(old) < 4 or len(new) < 4:
+        return None
+    if new.casefold() == old.casefold():
+        return new
+    if new.casefold().startswith(old.casefold() + " "):
+        return old
+    return None
 
 
 def _live_text_matches_mode(text: str, language: Language) -> bool:
@@ -470,6 +491,13 @@ async def live_transcription(websocket: WebSocket) -> None:
         transcription_config = {"mode": "VERBATIM"}
         if live_language_codes:
             transcription_config["language_codes"] = live_language_codes
+        custom_vocabulary = [
+            item.strip()
+            for item in settings.live_custom_vocabulary.split(",")
+            if item.strip()
+        ]
+        if custom_vocabulary:
+            transcription_config["custom_vocabulary"] = custom_vocabulary[:100]
         if getattr(settings, "live_native_api_enabled", False):
             try:
                 live_connect = gemini.client.aio.live.connect(
@@ -501,6 +529,7 @@ async def live_transcription(websocket: WebSocket) -> None:
             int(settings.live_stream_chunk_ms * start.sample_rate * 2 / 1000),
         )
         last_final_end = 0.0
+        last_interim_text = ""
         queued_preview_offset = 0.0
         last_voice_input_at: float | None = None
         voice_activity = SpeechActivityDetector(
@@ -674,7 +703,7 @@ async def live_transcription(websocket: WebSocket) -> None:
                     fallback_buffer.clear()
 
         async def receive_live_transcripts() -> None:
-            nonlocal last_final_end
+            nonlocal last_final_end, last_interim_text
             try:
                 while True:
                     async for response in live_session.receive():
@@ -691,13 +720,19 @@ async def live_transcription(websocket: WebSocket) -> None:
                                 continue
                             if not _live_text_matches_mode(interim.text, start.language):
                                 continue
+                            stable_text = _stable_interim(
+                                last_interim_text, interim.text
+                            )
+                            last_interim_text = interim.text
+                            if not stable_text:
+                                continue
                             await websocket.send_json(
                                 {
                                     "type": "interim",
-                                    "text": interim.text,
+                                    "text": stable_text,
                                     "detected_language": _live_detected_language(
                                         interim.language_code,
-                                        interim.text,
+                                        stable_text,
                                         start.language,
                                     ),
                                 }
@@ -705,6 +740,7 @@ async def live_transcription(websocket: WebSocket) -> None:
                         final = content.input_transcription
                         if final is None:
                             continue
+                        last_interim_text = ""
                         if not _has_recent_voice_activity(
                             last_voice_input_at,
                             time.monotonic(),

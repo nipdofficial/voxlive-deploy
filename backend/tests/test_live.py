@@ -189,6 +189,19 @@ def test_live_provider_output_requires_recent_voice_activity() -> None:
     assert not live._has_recent_voice_activity(5.0, 10.0, 4.0)
 
 
+def test_live_interim_requires_a_repeated_stable_hypothesis() -> None:
+    assert live._stable_interim("", "hello") is None
+    assert live._stable_interim("yellow", "hello") is None
+    assert live._stable_interim("hello", "hello world") == "hello"
+    assert live._stable_interim("hello world", "hello world") == "hello world"
+
+
+def test_mixed_mode_uses_selected_dominant_language_as_hint() -> None:
+    assert live._live_language_codes(Language.mixed, Language.sinhala) == ["si-LK"]
+    assert live._live_language_codes(Language.mixed, Language.english) == ["en-US"]
+    assert live._live_language_codes(Language.mixed, None) == []
+
+
 def test_gemini_36_plus_config_avoids_unsupported_sampling_parameters() -> None:
     from app.services.gemini_service import _generation_config
 
@@ -218,6 +231,22 @@ def test_voice_activity_detector_rejects_silence_and_quiet_room_hum() -> None:
 
     assert not contains_speech(silence)
     assert not contains_speech(quiet_hum)
+
+
+def test_voice_activity_detector_rejects_louder_steady_background_hum() -> None:
+    from app.services.audio_service import contains_speech
+
+    sample_rate = 16_000
+    samples = sample_rate * 2
+    fan_hum = struct.pack(
+        f"<{samples}h",
+        *[
+            int(260 * math.sin(2 * math.pi * 60 * index / sample_rate))
+            for index in range(samples)
+        ],
+    )
+
+    assert not contains_speech(fan_hum, energy_floor=220.0)
 
 
 def test_voice_activity_detector_handles_split_pcm_frames_and_voiced_audio() -> None:

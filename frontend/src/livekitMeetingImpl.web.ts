@@ -73,7 +73,9 @@ export const connectMeeting: ConnectMeeting = async (url, token, callbacks, opti
       const microphoneTrack = await createLocalAudioTrack({
         echoCancellation: true,
         noiseSuppression: true,
-        autoGainControl: true,
+        // Automatic gain can amplify fan/room noise during silence and make
+        // it look like speech to downstream transcription.
+        autoGainControl: false,
       });
       await room.localParticipant.publishTrack(microphoneTrack, {
         source: Track.Source.Microphone,
@@ -88,7 +90,7 @@ export const connectMeeting: ConnectMeeting = async (url, token, callbacks, opti
       const retryTrack = await createLocalAudioTrack({
         echoCancellation: true,
         noiseSuppression: true,
-        autoGainControl: true,
+        autoGainControl: false,
       });
       await room.localParticipant.publishTrack(retryTrack, {
         source: Track.Source.Microphone,
