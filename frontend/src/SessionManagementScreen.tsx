@@ -44,6 +44,8 @@ interface SessionManagementScreenProps {
 export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSession, isDark, authToken }: SessionManagementScreenProps) {
   const { width } = useWindowDimensions();
   const isWide = width >= 800;
+  const isDesktop = width >= 1024;
+  const isMobile = width < 600;
 
   // Create form state
   const [organizerName, setOrganizerName] = useState("");
@@ -281,21 +283,23 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
   const canChooseStartMode = activeStatus !== "ended";
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <LinearGradient colors={isDark ? ["#2D2254", "#171329"] : ["#F0E9FF", "#FFFFFF"]} start={[0, 0]} end={[1, 1]} style={styles.hero}>
+    <ScrollView contentContainerStyle={[styles.container, isMobile && styles.containerMobile]}>
+      <LinearGradient colors={isDark ? ["#241D3A", "#171421"] : ["#F3EEFF", "#FFFFFF"]} start={[0, 0]} end={[1, 1]} style={[styles.hero, isMobile && styles.heroMobile]}>
         <View style={styles.heroGlow} />
-        <View style={styles.headerIcon}><Feather name="calendar" size={20} color="#FFFFFF" /></View>
-        <Text style={styles.eyebrow}>WORKSPACE / SESSIONS</Text>
-        <Text style={styles.title}>Your live sessions</Text>
-        <Text style={styles.subtitle}>
-          Create a room, invite your audience, and keep every live moment organized.
-        </Text>
-        <View style={styles.heroMeta}><View style={styles.heroMetaDot} /><Text style={styles.heroMetaText}>Live translation workspace</Text><Feather name="arrow-up-right" size={14} color="#CDBDFF" /></View>
+        <View style={styles.heroContent}>
+          <View style={styles.headerIcon}><Feather name="calendar" size={19} color="#FFFFFF" /></View>
+          <View style={styles.heroCopy}>
+            <Text style={styles.eyebrow}>WORKSPACE / SESSIONS</Text>
+            <Text style={[styles.title, isMobile && styles.titleMobile]}>Manage Your Sessions</Text>
+            <Text style={styles.subtitle}>Create, organize, and manage your VoxLive events in one place.</Text>
+          </View>
+          {!isMobile ? <View style={styles.heroMeta}><View style={styles.heroMetaDot} /><Text style={styles.heroMetaText}>Workspace ready</Text></View> : null}
+        </View>
       </LinearGradient>
 
       <View style={styles.overviewGrid}>
         <View style={[styles.overviewCard, styles.liveOverview]}><View style={[styles.overviewIcon, { backgroundColor: "rgba(85,214,164,0.18)" }]}><Feather name="radio" size={16} color="#55D6A4" /></View><View><Text style={styles.overviewValue}>{managedSessions.filter((session) => session.status === "live").length}</Text><Text style={styles.overviewLabel}>Live now</Text></View><Feather style={styles.overviewArrow} name="activity" size={16} color="#55D6A4" /></View>
-        <View style={styles.overviewCard}><View style={[styles.overviewIcon, { backgroundColor: "rgba(167,139,250,0.18)" }]}><Feather name="archive" size={16} color="#A78BFA" /></View><View><Text style={styles.overviewValue}>{completedSessions.length}</Text><Text style={styles.overviewLabel}>Saved sessions</Text></View><Feather style={styles.overviewArrow} name="bar-chart-2" size={16} color="#A78BFA" /></View>
+        <View style={styles.overviewCard}><View style={[styles.overviewIcon, { backgroundColor: "rgba(167,139,250,0.18)" }]}><Feather name="archive" size={16} color="#A78BFA" /></View><View><Text style={styles.overviewValue}>{completedSessions.length}</Text><Text style={styles.overviewLabel}>Saved Sessions</Text></View><Feather style={styles.overviewArrow} name="bar-chart-2" size={16} color="#A78BFA" /></View>
         <View style={styles.overviewCard}><View style={[styles.overviewIcon, { backgroundColor: "rgba(243,201,105,0.18)" }]}><Feather name="calendar" size={16} color="#F3C969" /></View><View><Text style={styles.overviewValue}>{managedSessions.filter((session) => !session.is_started).length}</Text><Text style={styles.overviewLabel}>Upcoming</Text></View><Feather style={styles.overviewArrow} name="clock" size={16} color="#F3C969" /></View>
       </View>
 
@@ -405,41 +409,66 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
           </View>
         ) : (
           /* Create Session Form */
-          <View style={[styles.card, isWide && styles.cardWide]}>
-            <Text style={styles.cardHeader}>Create New Event Session</Text>
-
-            <View style={styles.fieldGroup}>
-              <Text style={styles.label}>Organizer Display Name</Text>
-              <TextInput
-                style={styles.input}
-                value={organizerName}
-                onChangeText={setOrganizerName}
-                placeholder="e.g. John (Host)"
-                placeholderTextColor="#625E70"
-              />
+          <View style={[styles.card, styles.createCard, isWide && styles.cardWide]}>
+            <View style={styles.createHeader}>
+              <View style={styles.createHeaderIcon}><Feather name="plus" size={18} color="#CDBDFF" /></View>
+              <View style={{ flex: 1 }}><Text style={styles.cardHeader}>Create New Event Session</Text><Text style={styles.cardDescription}>Set up the room details now. Choose Record, Live, or Upload when you enter the organizer workspace.</Text></View>
             </View>
 
-            <View style={styles.fieldGroup}>
-              <Text style={styles.label}>Session / Event Title</Text>
-              <TextInput
-                style={styles.input}
-                value={sessionTitle}
-                onChangeText={setSessionTitle}
-                placeholder="e.g. Keynote Presentation 2026"
-                placeholderTextColor="#625E70"
-              />
-            </View>
+            <View style={[styles.formGrid, !isDesktop && styles.formGridStack]}>
+              <View style={styles.formPanel}>
+                <Text style={styles.panelEyebrow}>SESSION DETAILS</Text>
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.label}>Organizer Display Name</Text>
+                  <TextInput
+                    accessibilityLabel="Organizer display name"
+                    style={styles.input}
+                    value={organizerName}
+                    onChangeText={setOrganizerName}
+                    placeholder="e.g. John (Host)"
+                    placeholderTextColor="#625E70"
+                  />
+                </View>
 
-            <View style={styles.fieldGroup}>
+                <View style={styles.fieldGroup}>
+                  <Text style={styles.label}>Session / Event Title</Text>
+                  <TextInput
+                    accessibilityLabel="Session or event title"
+                    style={styles.input}
+                    value={sessionTitle}
+                    onChangeText={setSessionTitle}
+                    placeholder="e.g. Keynote Presentation 2026"
+                    placeholderTextColor="#625E70"
+                  />
+                </View>
+
+                <View style={[styles.fieldGroup, styles.fieldGroupLast]}>
+                  <Text style={styles.label}>Maximum Participants</Text>
+                  <TextInput
+                    accessibilityLabel="Maximum participants"
+                    style={styles.input}
+                    value={maxParticipants}
+                    onChangeText={setMaxParticipants}
+                    placeholder="50"
+                    keyboardType="number-pad"
+                    placeholderTextColor="#625E70"
+                  />
+                  <Text style={styles.hint}>Limits how many participants can join this session simultaneously.</Text>
+                </View>
+              </View>
+
+              <View style={styles.formPanel}>
+                <Text style={styles.panelEyebrow}>LANGUAGE & TIMING</Text>
+                <View style={styles.fieldGroup}>
               <Text style={styles.label}>Speaker input language</Text>
-              <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-                {(["Sinhala", "Mixed"] as Language[]).map((option) => <Pressable key={option} onPress={() => setLanguage(option)} style={{ paddingHorizontal: 11, paddingVertical: 8, borderRadius: 9, borderWidth: 1, borderColor: language === option ? "#8067CE" : "rgba(255,255,255,0.12)", backgroundColor: language === option ? "#755BD0" : "rgba(255,255,255,0.05)" }}><Text style={{ color: language === option ? "white" : "#B8B1C8", fontSize: 11, fontWeight: "600" }}>{option}</Text></Pressable>)}
+              <View style={styles.optionRow}>
+                {(["Sinhala", "Mixed"] as Language[]).map((option) => <Pressable accessibilityRole="radio" accessibilityState={{ checked: language === option }} key={option} onPress={() => setLanguage(option)} style={[styles.choiceCard, language === option && styles.choiceCardActive]}><Feather name={option === "Sinhala" ? "message-circle" : "globe"} size={15} color={language === option ? "#FFFFFF" : "#A78BFA"} /><Text style={[styles.choiceText, language === option && styles.choiceTextActive]}>{option}</Text>{language === option ? <Feather name="check" size={14} color="#FFFFFF" /> : null}</Pressable>)}
               </View>
               <Text style={styles.hint}>Choose one language for better live recognition, or use Mixed for automatic detection.</Text>
               {language === "Mixed" ? <>
                 <Text style={[styles.label, { marginTop: 14 }]}>Main speaker language</Text>
-                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
-                  {(["Sinhala", "Tamil", "English"] as Language[]).map((option) => <Pressable key={option} onPress={() => setPreferredSpeakerLanguage(option)} style={{ paddingHorizontal: 11, paddingVertical: 8, borderRadius: 9, borderWidth: 1, borderColor: preferredSpeakerLanguage === option ? "#8067CE" : "rgba(255,255,255,0.12)", backgroundColor: preferredSpeakerLanguage === option ? "#755BD0" : "rgba(255,255,255,0.05)" }}><Text style={{ color: preferredSpeakerLanguage === option ? "white" : "#B8B1C8", fontSize: 11, fontWeight: "600" }}>{option}</Text></Pressable>)}
+                <View style={styles.segmentRow}>
+                  {(["Sinhala", "Tamil", "English"] as Language[]).map((option) => <Pressable accessibilityRole="radio" accessibilityState={{ checked: preferredSpeakerLanguage === option }} key={option} onPress={() => setPreferredSpeakerLanguage(option)} style={[styles.segmentOption, preferredSpeakerLanguage === option && styles.segmentOptionActive]}><Text style={[styles.segmentText, preferredSpeakerLanguage === option && styles.choiceTextActive]}>{option}</Text></Pressable>)}
                 </View>
                 <Text style={styles.hint}>Gemini prioritizes this language while still detecting every language spoken and translating every line to Tamil.</Text>
               </> : null}
@@ -447,8 +476,8 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
 
             <View style={styles.fieldGroup}>
               <Text style={styles.label}>Meeting timing</Text>
-              <View style={{ flexDirection: "row", gap: 8 }}>
-                {(["now", "scheduled"] as const).map((option) => <Pressable key={option} onPress={() => setScheduleMode(option)} style={{ flex: 1, paddingVertical: 10, borderRadius: 9, borderWidth: 1, borderColor: scheduleMode === option ? "#8067CE" : "rgba(255,255,255,0.12)", backgroundColor: scheduleMode === option ? "#755BD0" : "rgba(255,255,255,0.05)" }}><Text style={{ color: scheduleMode === option ? "white" : "#B8B1C8", fontSize: 11, fontWeight: "600", textAlign: "center" }}>{option === "now" ? "Meeting now" : "Schedule meeting"}</Text></Pressable>)}
+              <View style={styles.segmentRow}>
+                {(["now", "scheduled"] as const).map((option) => <Pressable accessibilityRole="radio" accessibilityState={{ checked: scheduleMode === option }} key={option} onPress={() => setScheduleMode(option)} style={[styles.segmentOption, scheduleMode === option && styles.segmentOptionActive]}><Feather name={option === "now" ? "zap" : "calendar"} size={14} color={scheduleMode === option ? "#FFFFFF" : "#A78BFA"} /><Text style={[styles.segmentText, scheduleMode === option && styles.choiceTextActive]}>{option === "now" ? "Meeting now" : "Schedule meeting"}</Text></Pressable>)}
               </View>
               {scheduleMode === "scheduled" ? <>
                 <View style={styles.scheduleFields}>
@@ -462,25 +491,14 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
                   {[5, 15, 30].map((minutes) => <Pressable key={minutes} onPress={() => setReminderMinutes(minutes)} style={[styles.reminderOption, reminderMinutes === minutes && styles.reminderOptionActive]}><Feather name="bell" size={13} color={reminderMinutes === minutes ? "white" : "#A78BFA"} /><Text style={[styles.reminderText, reminderMinutes === minutes && { color: "white" }]}>{minutes} min before</Text></Pressable>)}
                 </View>
               </> : <Text style={styles.hint}>Create the room and QR now. Choose Record, Live, or Upload on the organizer start screen.</Text>}
-            </View>
-
-            <View style={styles.fieldGroup}>
-              <Text style={styles.label}>Maximum Participants</Text>
-              <TextInput
-                style={styles.input}
-                value={maxParticipants}
-                onChangeText={setMaxParticipants}
-                placeholder="50"
-                keyboardType="number-pad"
-                placeholderTextColor="#625E70"
-              />
-              <Text style={styles.hint}>
-                Limits how many participants can join this session simultaneously.
-              </Text>
+                </View>
+              </View>
             </View>
 
             <Pressable
-              style={styles.primaryButton}
+              accessibilityRole="button"
+              accessibilityLabel="Generate session and QR code"
+              style={[styles.primaryButton, styles.createButton, creating && styles.buttonDisabled]}
               onPress={handleCreateSession}
               disabled={creating}
             >
@@ -532,50 +550,57 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
 const getStyles = (isDark: boolean) =>
   StyleSheet.create({
     container: {
-      padding: 24,
-      paddingTop: 30,
+      padding: 28,
+      paddingTop: 28,
+      paddingBottom: 56,
       alignItems: "center",
-      maxWidth: 1180,
+      maxWidth: 1440,
       alignSelf: "center",
       width: "100%",
     },
-    hero: { width: "100%", maxWidth: 1180, minHeight: 220, borderRadius: 24, padding: 30, overflow: "hidden", borderWidth: 1, borderColor: isDark ? "rgba(205,189,255,0.18)" : "rgba(109,92,231,0.16)", marginBottom: 18, shadowColor: "#000", shadowOffset: { width: 0, height: 12 }, shadowOpacity: isDark ? 0.24 : 0.08, shadowRadius: 24, elevation: 5 },
-    heroGlow: { position: "absolute", width: 190, height: 190, borderRadius: 95, right: -58, top: -62, backgroundColor: "rgba(167,139,250,0.18)" },
+    containerMobile: { padding: 14, paddingTop: 18, paddingBottom: 36 },
+    hero: { width: "100%", maxWidth: 1384, minHeight: 138, borderRadius: 20, paddingHorizontal: 26, paddingVertical: 24, overflow: "hidden", borderWidth: 1, borderColor: isDark ? "rgba(205,189,255,0.17)" : "rgba(109,92,231,0.16)", marginBottom: 14, shadowColor: "#000", shadowOffset: { width: 0, height: 10 }, shadowOpacity: isDark ? 0.22 : 0.07, shadowRadius: 22, elevation: 4 },
+    heroMobile: { minHeight: 0, paddingHorizontal: 18, paddingVertical: 20, borderRadius: 17 },
+    heroGlow: { position: "absolute", width: 210, height: 210, borderRadius: 105, right: -48, top: -92, backgroundColor: "rgba(167,139,250,0.16)" },
+    heroContent: { flexDirection: "row", alignItems: "center", gap: 16, width: "100%" },
+    heroCopy: { flex: 1, minWidth: 0 },
     header: {
       alignItems: "center",
       marginBottom: 24,
       textAlign: "center",
     },
-    headerIcon: { width: 46, height: 46, borderRadius: 15, alignItems: "center", justifyContent: "center", backgroundColor: "#8067CE", borderWidth: 1, borderColor: "rgba(255,255,255,0.25)", marginBottom: 15 },
+    headerIcon: { width: 44, height: 44, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: "#765CE6", borderWidth: 1, borderColor: "rgba(255,255,255,0.22)", shadowColor: "#765CE6", shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.28, shadowRadius: 12, elevation: 3 },
     eyebrow: {
       fontSize: 12,
       fontWeight: "700",
       letterSpacing: 1.5,
       color: "#A78BFA",
-      marginBottom: 8,
+      marginBottom: 5,
     },
     title: {
-      fontSize: 30,
+      fontSize: 27,
       fontWeight: "800",
       color: isDark ? "#F3F0FF" : "#1E1A29",
-      marginBottom: 8,
+      marginBottom: 5,
+      letterSpacing: -0.45,
     },
+    titleMobile: { fontSize: 22 },
     subtitle: {
       fontSize: 14,
       color: isDark ? "#A09AAB" : "#645E73",
-      maxWidth: 560,
+      maxWidth: 660,
       lineHeight: 20,
       textAlign: "left",
     },
-    heroMeta: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 20 },
+    heroMeta: { flexDirection: "row", alignItems: "center", gap: 8, marginLeft: "auto", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: "rgba(205,189,255,0.18)", backgroundColor: "rgba(255,255,255,0.04)" },
     heroMetaDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#55D6A4" },
     heroMetaText: { color: isDark ? "#D7D1E8" : "#62558A", fontSize: 11, fontWeight: "700", letterSpacing: 0.3 },
-    overviewGrid: { width: "100%", flexDirection: "row", flexWrap: "wrap", gap: 12, marginBottom: 18 },
-    overviewCard: { flex: 1, minWidth: 170, minHeight: 84, flexDirection: "row", alignItems: "center", gap: 12, padding: 16, borderRadius: 17, backgroundColor: isDark ? "#1C1829" : "#FFFFFF", borderWidth: 1, borderColor: isDark ? "rgba(255,255,255,0.09)" : "rgba(0,0,0,0.08)", shadowColor: "#000", shadowOffset: { width: 0, height: 5 }, shadowOpacity: isDark ? 0.16 : 0.05, shadowRadius: 12, elevation: 2 },
+    overviewGrid: { width: "100%", flexDirection: "row", flexWrap: "wrap", gap: 10, marginBottom: 14 },
+    overviewCard: { flex: 1, minWidth: 190, minHeight: 76, flexDirection: "row", alignItems: "center", gap: 12, paddingHorizontal: 16, paddingVertical: 13, borderRadius: 15, backgroundColor: isDark ? "#1B1725" : "#FFFFFF", borderWidth: 1, borderColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.07)", shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: isDark ? 0.14 : 0.04, shadowRadius: 10, elevation: 2 },
     liveOverview: { borderColor: "rgba(85,214,164,0.35)" },
     overviewArrow: { marginLeft: "auto", opacity: 0.7 },
-    overviewIcon: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-    overviewValue: { color: isDark ? "#F3F0FF" : "#1E1A29", fontSize: 18, fontWeight: "800" },
+    overviewIcon: { width: 36, height: 36, borderRadius: 11, alignItems: "center", justifyContent: "center" },
+    overviewValue: { color: isDark ? "#F3F0FF" : "#1E1A29", fontSize: 19, fontWeight: "800" },
     overviewLabel: { color: isDark ? "#9690A3" : "#71697D", fontSize: 11, marginTop: 2 },
     tabContainer: {
       flexDirection: "row",
@@ -610,16 +635,40 @@ const getStyles = (isDark: boolean) =>
     },
     card: {
       width: "100%",
-      backgroundColor: isDark ? "#1C1829" : "#FFFFFF",
-      borderRadius: 20,
-      padding: 26,
+      backgroundColor: isDark ? "#1B1725" : "#FFFFFF",
+      borderRadius: 18,
+      padding: 24,
       borderWidth: 1,
       borderColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)",
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 8 },
+      shadowOpacity: isDark ? 0.13 : 0.04,
+      shadowRadius: 18,
+      elevation: 2,
     },
     cardWide: {
-      maxWidth: 1000,
+      maxWidth: 1384,
     },
-    controlCard: { maxWidth: 1180, marginTop: 18, padding: 30 },
+    createCard: { padding: 0, overflow: "hidden" },
+    createHeader: { flexDirection: "row", alignItems: "flex-start", gap: 13, paddingHorizontal: 24, paddingVertical: 20, borderBottomWidth: 1, borderBottomColor: isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.07)" },
+    createHeaderIcon: { width: 36, height: 36, borderRadius: 11, alignItems: "center", justifyContent: "center", backgroundColor: isDark ? "rgba(126,92,230,0.16)" : "#EEE9FC", borderWidth: 1, borderColor: isDark ? "rgba(167,139,250,0.25)" : "rgba(109,92,231,0.16)" },
+    cardDescription: { color: isDark ? "#8F899D" : "#71697D", fontSize: 12, lineHeight: 18, marginTop: 3 },
+    formGrid: { flexDirection: "row", alignItems: "flex-start", gap: 16, padding: 20 },
+    formGridStack: { flexDirection: "column" },
+    formPanel: { flex: 1, width: "100%", minWidth: 0, padding: 18, borderRadius: 14, backgroundColor: isDark ? "#15111D" : "#F8F6FC", borderWidth: 1, borderColor: isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.06)" },
+    panelEyebrow: { color: isDark ? "#8F82B4" : "#715EA3", fontSize: 10, fontWeight: "800", letterSpacing: 1.2, marginBottom: 16 },
+    optionRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+    choiceCard: { flex: 1, minWidth: 120, minHeight: 42, flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)", backgroundColor: isDark ? "rgba(255,255,255,0.035)" : "#FFFFFF" },
+    choiceCardActive: { backgroundColor: "#6F55D9", borderColor: "#8E78ED" },
+    choiceText: { flex: 1, color: isDark ? "#B8B1C8" : "#5E566D", fontSize: 12, fontWeight: "700" },
+    choiceTextActive: { color: "#FFFFFF" },
+    segmentRow: { flexDirection: "row", flexWrap: "wrap", gap: 7 },
+    segmentOption: { flex: 1, minWidth: 88, minHeight: 38, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 9, borderRadius: 9, borderWidth: 1, borderColor: isDark ? "rgba(255,255,255,0.10)" : "rgba(0,0,0,0.10)", backgroundColor: isDark ? "rgba(255,255,255,0.035)" : "#FFFFFF" },
+    segmentOptionActive: { backgroundColor: "#6F55D9", borderColor: "#8E78ED" },
+    segmentText: { color: isDark ? "#B8B1C8" : "#5E566D", fontSize: 11, fontWeight: "700", textAlign: "center" },
+    createButton: { marginHorizontal: 20, marginTop: 0, marginBottom: 20, minHeight: 50, borderRadius: 12, shadowColor: "#6D5CE7", shadowOffset: { width: 0, height: 7 }, shadowOpacity: 0.24, shadowRadius: 14, elevation: 4 },
+    buttonDisabled: { opacity: 0.58 },
+    controlCard: { maxWidth: 1384, marginTop: 14, padding: 24 },
     controlHeader: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 12 },
     allSessionsBadge: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 9, backgroundColor: isDark ? "#2A2338" : "#F0EBF8" },
     allSessionsText: { color: isDark ? "#CDBDFF" : "#62499A", fontSize: 11, fontWeight: "700" },
@@ -627,11 +676,12 @@ const getStyles = (isDark: boolean) =>
       fontSize: 18,
       fontWeight: "700",
       color: isDark ? "#F3F0FF" : "#1E1A29",
-      marginBottom: 20,
+      marginBottom: 0,
     },
     fieldGroup: {
       marginBottom: 18,
     },
+    fieldGroupLast: { marginBottom: 0 },
     scheduleFields: { flexDirection: "row", flexWrap: "wrap", gap: 10, marginTop: 12 },
     label: {
       fontSize: 13,
@@ -641,13 +691,14 @@ const getStyles = (isDark: boolean) =>
     },
     input: {
       backgroundColor: isDark ? "#120E1C" : "#F5F3F9",
+      minHeight: 46,
       borderRadius: 10,
       paddingHorizontal: 14,
       paddingVertical: 12,
       fontSize: 15,
       color: isDark ? "#F3F0FF" : "#1E1A29",
       borderWidth: 1,
-      borderColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)",
+      borderColor: isDark ? "rgba(255,255,255,0.11)" : "rgba(0,0,0,0.10)",
     },
     hint: {
       fontSize: 12,
@@ -658,8 +709,8 @@ const getStyles = (isDark: boolean) =>
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "center",
-      backgroundColor: "#6D5CE7",
-      borderRadius: 10,
+      backgroundColor: "#6F55D9",
+      borderRadius: 11,
       paddingVertical: 14,
       gap: 10,
       marginTop: 8,
@@ -707,7 +758,7 @@ const getStyles = (isDark: boolean) =>
       marginBottom: 20,
     },
     sessionTitle: {
-      fontSize: 20,
+      fontSize: 14,
       fontWeight: "700",
       color: isDark ? "#F3F0FF" : "#1E1A29",
       marginBottom: 4,
@@ -777,10 +828,14 @@ const getStyles = (isDark: boolean) =>
       flexDirection: "row",
       alignItems: "center",
       gap: 12,
-      padding: 12,
-      borderRadius: 10,
+      minHeight: 64,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
+      borderRadius: 12,
       marginTop: 8,
-      backgroundColor: isDark ? "#120E1C" : "#F5F3F9",
+      backgroundColor: isDark ? "#15111D" : "#F7F5FA",
+      borderWidth: 1,
+      borderColor: isDark ? "rgba(255,255,255,0.055)" : "rgba(0,0,0,0.055)",
     },
     rowActions: { flexDirection: "row", gap: 7, alignItems: "center", marginLeft: "auto" },
     rowAction: { minHeight: 36, paddingHorizontal: 12, borderRadius: 8, backgroundColor: "#6D5CE7", alignItems: "center", justifyContent: "center" },
@@ -790,7 +845,7 @@ const getStyles = (isDark: boolean) =>
     deleteIconButton: { width: 36, height: 36, borderRadius: 8, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(242,139,154,0.10)", borderWidth: 1, borderColor: "rgba(242,139,154,0.22)" },
     liveRow: { borderWidth: 1, borderColor: "rgba(85,214,164,0.30)", backgroundColor: isDark ? "rgba(85,214,164,0.07)" : "#F1FBF7" },
     sessionRowIcon: { width: 34, height: 34, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: isDark ? "#2A2338" : "#ECE7F6" },
-    sectionHeading: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 12 },
+    sectionHeading: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 14, marginBottom: 2 },
     sectionDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#55D6A4" },
     sectionTitle: { color: isDark ? "#BDB6CB" : "#5E566D", fontSize: 11, fontWeight: "800", letterSpacing: 1.1 },
     sectionCount: { marginLeft: "auto", color: isDark ? "#827B91" : "#8F8A9E", fontSize: 11 },
@@ -801,11 +856,11 @@ const getStyles = (isDark: boolean) =>
     upcomingPillText: { color: "#A78BFA", fontSize: 10, fontWeight: "800" },
     endedBanner: { marginTop: 24, padding: 14, borderRadius: 10, backgroundColor: "rgba(85,214,164,0.10)", flexDirection: "row", alignItems: "center", gap: 9 },
     endedBannerText: { color: "#55D6A4", fontSize: 12, fontWeight: "600" },
-    emptyState: { flexDirection: "row", alignItems: "center", gap: 9, paddingVertical: 14 },
+    emptyState: { flexDirection: "row", alignItems: "center", gap: 9, minHeight: 64, marginTop: 8, paddingHorizontal: 14, paddingVertical: 14, borderRadius: 12, borderWidth: 1, borderStyle: "dashed", borderColor: isDark ? "rgba(255,255,255,0.09)" : "rgba(0,0,0,0.09)" },
     emptySession: {
       color: isDark ? "#7F7A8C" : "#8F8A9E",
       fontSize: 12,
-      marginTop: 8,
+      marginTop: 0,
     },
     liveStatus: {
       color: "#55D6A4",
