@@ -374,7 +374,10 @@ def test_live_translation_updates_saved_segment_and_broadcasts_delta(monkeypatch
     monkeypatch.setattr(
         meeting_service,
         "get_settings",
-        lambda: SimpleNamespace(target_language=Language.tamil),
+        lambda: SimpleNamespace(
+            target_language=Language.tamil,
+            gemini_live_translation_timeout_seconds=1,
+        ),
     )
     monkeypatch.setattr(meeting_service, "save_record", ignore_save)
 
@@ -505,7 +508,10 @@ def test_live_translation_failure_is_not_silently_swallowed(monkeypatch) -> None
     monkeypatch.setattr(
         meeting_service,
         "get_settings",
-        lambda: SimpleNamespace(target_language=Language.tamil),
+        lambda: SimpleNamespace(
+            target_language=Language.tamil,
+            gemini_live_translation_timeout_seconds=1,
+        ),
     )
 
     asyncio.run(session._translate_preview_segments([segment]))
@@ -513,6 +519,62 @@ def test_live_translation_failure_is_not_silently_swallowed(monkeypatch) -> None
     assert "could not translate" in record.error
     assert participant.payloads[-1]["type"] == "warning"
     assert "translation" in participant.payloads[-1]["message"].lower()
+
+
+def test_slow_live_translation_times_out_without_blocking_later_lines(monkeypatch) -> None:
+    from app.services import meeting_service
+    from app.models.schemas import Language, SessionType, TranscriptRecord
+
+    record = TranscriptRecord(
+        title="Live meeting",
+        language=Language.mixed,
+        session_type=SessionType.meeting,
+        start_mode=SessionType.live,
+    )
+    session = meeting_service.MeetingSession("ABCDEFGH", "secret", record, Language.mixed)
+    slow = TranscriptSegment(start=0, end=1, text="slow", segment_id="slow")
+    fast = TranscriptSegment(start=1, end=2, text="hello", segment_id="fast")
+    record.segments = [slow, fast]
+
+    class FakeParticipant:
+        def __init__(self) -> None:
+            self.payloads: list[dict] = []
+
+        async def publish_data(self, payload, **_kwargs):
+            self.payloads.append(json.loads(payload.decode("utf-8")))
+
+    class Translator:
+        async def translate_segments(self, segments, _target_language):
+            if segments[0].segment_id == "slow":
+                await asyncio.sleep(0.2)
+            return ["வணக்கம்"]
+
+    async def ignore_save(value):
+        return value
+
+    session.room = SimpleNamespace(local_participant=FakeParticipant())
+    monkeypatch.setattr(meeting_service, "GeminiService", Translator)
+    monkeypatch.setattr(meeting_service, "save_record", ignore_save)
+    monkeypatch.setattr(
+        meeting_service,
+        "get_settings",
+        lambda: SimpleNamespace(
+            target_language=Language.tamil,
+            gemini_live_translation_timeout_seconds=0.01,
+        ),
+    )
+
+    async def exercise() -> None:
+        await asyncio.gather(
+            session._translate_preview_segments([slow]),
+            session._translate_preview_segments([fast]),
+        )
+
+    asyncio.run(exercise())
+
+    assert record.segments[0].translated_text is None
+    assert record.segments[1].translated_text == "வணக்கம்"
+    assert any(item["type"] == "translation" for item in session.room.local_participant.payloads)
 
 
 def test_end_is_idempotent(monkeypatch) -> None:

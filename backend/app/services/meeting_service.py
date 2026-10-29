@@ -169,10 +169,10 @@ class MeetingSession:
         self.translation_tasks: set[asyncio.Task[None]] = set()
         self.live_issues: dict[str, str] = {}
         self.broadcast_live_issue = ""
-        # Keep live translation requests ordered. Sending one Gemini request
-        # for every overlapping audio chunk at once can trigger throttling and
-        # make Sinhala source captions appear without their Tamil updates.
-        self.translation_lock = asyncio.Lock()
+        # A single slow provider response must not block every later live
+        # caption. Source lines are already published in sequence, so a small
+        # translation pool can safely fill those lines by segment id.
+        self.translation_slots = asyncio.Semaphore(3)
         self.next_segment_sequence = 1
 
     @property
@@ -586,24 +586,30 @@ class MeetingSession:
         """Attach Tamil to already-published live segments without blocking them."""
         try:
             started = time.perf_counter()
-            async with self.translation_lock:
+            settings = get_settings()
+            timeout_seconds = max(
+                0.01,
+                min(
+                    float(
+                        getattr(
+                            settings,
+                            "gemini_live_translation_timeout_seconds",
+                            getattr(settings, "gemini_live_timeout_seconds", 12.0),
+                        )
+                    ),
+                    15.0,
+                ),
+            )
+            async with self.translation_slots:
                 translator = GeminiService()
-                try:
-                    translations = await translator.translate_segments(
-                        segments, get_settings().target_language
-                    )
-                except Exception:
-                    # A batch response should not discard every line when a
-                    # provider response is malformed or only one line fails.
-                    translations = []
-                    for segment in segments:
-                        try:
-                            result = await translator.translate_segments(
-                                [segment], get_settings().target_language
-                            )
-                            translations.append(result[0] if result else "")
-                        except Exception:
-                            translations.append("")
+                # Live mode gets one bounded attempt. Retrying each segment
+                # with the 90-second batch timeout made a meeting look frozen.
+                # Any missed Tamil line is retried by the authoritative final
+                # pass after the organizer ends the meeting.
+                translations = await asyncio.wait_for(
+                    translator.translate_segments(segments, settings.target_language),
+                    timeout=timeout_seconds,
+                )
             failed_translation = False
             for source, translated in zip(segments, translations, strict=True):
                 if not translated:

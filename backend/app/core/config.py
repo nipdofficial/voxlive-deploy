@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     gemini_max_retries: int = 3
     gemini_retry_base_seconds: float = 1.0
     gemini_live_timeout_seconds: float = 30.0
+    # Live text translation must fail fast so one delayed provider response
+    # cannot hold every following meeting caption behind it. The completed
+    # recording still receives the slower, authoritative batch pass.
+    gemini_live_translation_timeout_seconds: float = 12.0
     gemini_batch_timeout_seconds: float = 90.0
     # The generateContent chunk preview is the reliable live-caption path for
     # this deployment. The native Live API handshake can succeed while
