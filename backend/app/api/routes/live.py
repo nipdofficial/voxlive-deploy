@@ -408,6 +408,7 @@ async def live_transcription(websocket: WebSocket) -> None:
     translation_tasks: set[asyncio.Task[None]] = set()
     live_connect = None
     live_entered = False
+    live_session = None
     fallback_active = False
     try:
         start = LiveStart.model_validate(await websocket.receive_json())
