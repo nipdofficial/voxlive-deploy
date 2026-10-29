@@ -269,6 +269,73 @@ def test_voice_activity_detector_requires_sustained_speech_not_a_single_burst() 
     assert detector.feed(voiced[640 * 2:])
 
 
+def test_live_short_speech_flushes_during_silence_before_stop(monkeypatch, tmp_path: Path) -> None:
+    """A brief phrase followed by silence must not wait for Stop."""
+    from app.core.config import get_settings
+
+    (tmp_path / "audio").mkdir()
+    settings = get_settings().model_copy(update={"data_dir": tmp_path, "live_native_api_enabled": False, "live_preview_queue_size": 50})
+    monkeypatch.setattr(live, "get_settings", lambda: settings)
+    monkeypatch.setattr(live, "GeminiService", lambda: object())
+
+    class VoiceThenSilence:
+        def __init__(self, *_args):
+            self.calls = 0
+
+        def feed(self, _chunk):
+            self.calls += 1
+            return self.calls == 1
+
+    monkeypatch.setattr(live, "SpeechActivityDetector", VoiceThenSilence)
+    monkeypatch.setattr(live, "contains_speech", lambda chunk, *_args: any(chunk))
+    monkeypatch.setattr(live, "_gate_live_pcm", lambda chunk, _threshold: chunk)
+
+    async def transcribe(_gemini, _chunk, _rate, _record, offset):
+        return [TranscriptSegment(start=offset, end=offset + 0.1, text="hello")]
+
+    async def save(record):
+        return record
+
+    monkeypatch.setattr(live, "_transcribe_live_chunk", transcribe)
+    monkeypatch.setattr(live, "save_record", save)
+    monkeypatch.setattr(live, "_start_background_finalization", lambda *_args: None)
+
+    class Socket:
+        def __init__(self):
+            self.incoming = asyncio.Queue()
+            self.outgoing = asyncio.Queue()
+
+        async def accept(self):
+            pass
+
+        async def receive_json(self):
+            return {"language": "Mixed", "session_type": "Record", "sample_rate": 16000, "title": "test"}
+
+        async def send_json(self, payload):
+            await self.outgoing.put(payload)
+
+        async def receive(self):
+            return await self.incoming.get()
+
+        async def close(self, *args, **kwargs):
+            pass
+
+    async def run():
+        socket = Socket()
+        task = asyncio.create_task(live.live_transcription(socket))
+        assert (await asyncio.wait_for(socket.outgoing.get(), 2))["type"] == "ready"
+        await socket.incoming.put({"bytes": b"\x01\x00" * 1600})
+        for _ in range(9):
+            await socket.incoming.put({"bytes": bytes(3200)})
+        message = await asyncio.wait_for(socket.outgoing.get(), 2)
+        assert message["type"] == "transcript"
+        assert message["segment"]["text"] == "hello"
+        await socket.incoming.put({"text": "stop"})
+        await asyncio.wait_for(task, 2)
+
+    asyncio.run(run())
+
+
 def test_silent_final_audio_clears_false_live_preview(monkeypatch, tmp_path: Path) -> None:
     path = tmp_path / "silent.wav"
     path.write_bytes(live._pcm_wav_bytes(bytes(16_000 * 2), 16_000))

@@ -725,7 +725,11 @@ async def live_transcription(websocket: WebSocket) -> None:
                         else bytes(len(captured_chunk))
                     )
                     raw_file.write(live_chunk)
-                    if has_sustained_voice:
+                    # The chunk-preview worker needs the complete timeline,
+                    # including gated silence, to finish a one-second window
+                    # during a pause. It checks for speech before invoking the
+                    # model, so silence does not trigger transcription calls.
+                    if has_sustained_voice or live_session is None:
                         if queue.full():
                             queue.get_nowait()
                         queue.put_nowait((live_chunk, queued_preview_offset))
