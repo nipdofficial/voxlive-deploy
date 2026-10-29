@@ -34,13 +34,14 @@ def test_scheduled_meeting_cannot_be_started_early(monkeypatch) -> None:
     session = SimpleNamespace(
         ending=False,
         host_secret="secret",
+        organizer_user_id="owner",
         scheduled_start=datetime.now(timezone.utc) + timedelta(hours=1),
         start=lambda: pytest.fail("future scheduled meeting must not start"),
     )
     monkeypatch.setattr(meetings.meeting_registry, "get", lambda _code: session)
 
     with pytest.raises(HTTPException) as caught:
-        asyncio.run(meetings.start_meeting("ABCDEFGH", MeetingStart(host_secret="secret")))
+        asyncio.run(meetings.start_meeting("ABCDEFGH", MeetingStart(host_secret="secret"), SimpleNamespace(user_id="owner")))
 
     assert caught.value.status_code == 409
     assert "scheduled to start" in caught.value.detail
@@ -373,6 +374,58 @@ def test_live_pipeline_issue_is_broadcast_and_recovery_clears_it(monkeypatch) ->
     assert participant.payloads[0]["message"] == "VoxLive could not transcribe this chunk"
 
 
+@pytest.mark.parametrize("mode", ["Record", "Live"])
+def test_meeting_broadcasts_source_before_optional_translation(monkeypatch, mode) -> None:
+    from app.services import meeting_service
+    from app.models.schemas import Language, SessionType, TranscriptRecord
+
+    record = TranscriptRecord(title="test", language=Language.mixed, session_type=SessionType.meeting, start_mode=SessionType(mode))
+    session = meeting_service.MeetingSession("ABCDEFGH", "secret", record, Language.mixed)
+    payloads = []
+
+    class Participant:
+        async def publish_data(self, payload, **_kwargs):
+            payloads.append(json.loads(payload))
+
+    class Gemini:
+        async def transcribe_file(self, *_args, **kwargs):
+            assert kwargs.get("translate_to") is None
+            return [TranscriptSegment(start=0, end=1, text="hello")]
+
+        async def translate_segments(self, segments, _target):
+            return ["வணக்கம்" for _ in segments]
+
+    async def save(value):
+        return value
+
+    settings = SimpleNamespace(auto_translate=True, gemini_text_model="model", gemini_live_timeout_seconds=10, target_language=Language.tamil)
+    monkeypatch.setattr(meeting_service, "get_settings", lambda: settings)
+    monkeypatch.setattr(meeting_service, "GeminiService", Gemini)
+    monkeypatch.setattr(meeting_service, "save_record", save)
+    session.room = SimpleNamespace(local_participant=Participant())
+
+    async def run():
+        state = TrackState(identity="speaker", display_name="Speaker", shared_mic=False, start_offset=0.0)
+        state.speech_activity = SimpleNamespace(feed=lambda _audio: True)
+        state.queue = asyncio.Queue()
+        session.states[state.identity] = state
+        await state.queue.put((bytes(32000), 0.0, 0.0))
+        await state.queue.put(None)
+        await session._transcribe_chunks(state)
+        await asyncio.gather(*session.translation_tasks)
+
+    asyncio.run(run())
+    assert payloads[0]["type"] == "transcript"
+    assert payloads[0]["segment"]["text"] == "hello"
+    assert len(record.segments) == 1
+    if mode == "Live":
+        assert [item["type"] for item in payloads] == ["transcript", "translation"]
+        assert record.segments[0].translated_text == "வணக்கம்"
+    else:
+        assert [item["type"] for item in payloads] == ["transcript"]
+        assert not record.segments[0].translated_text
+
+
 def test_live_translation_failure_is_not_silently_swallowed(monkeypatch) -> None:
     from app.services import meeting_service
     from app.models.schemas import Language, SessionType, TranscriptRecord
@@ -463,7 +516,8 @@ def test_participant_token_is_room_scoped_and_microphone_only(monkeypatch) -> No
 
     assert claims.video.room_join is True
     assert claims.video.room == "helascribe-abcdefgh"
-    assert claims.video.can_publish_sources == ["microphone"]
+    assert claims.video.can_publish is False
+    assert not claims.video.can_publish_sources
     assert claims.video.can_publish_data is False
 
 
@@ -473,6 +527,7 @@ def test_only_host_secret_can_end_meeting(monkeypatch) -> None:
 
     class FakeSession:
         host_secret = "correct"
+        organizer_user_id = "owner"
         record = SimpleNamespace(id="meeting-id")
 
         def __init__(self) -> None:
@@ -485,11 +540,11 @@ def test_only_host_secret_can_end_meeting(monkeypatch) -> None:
     monkeypatch.setattr(meetings.meeting_registry, "get", lambda _code: session)
 
     with pytest.raises(HTTPException) as denied:
-        asyncio.run(meetings.end_meeting("ABCDEFGH", MeetingEnd(host_secret="wrong")))
+        asyncio.run(meetings.end_meeting("ABCDEFGH", MeetingEnd(host_secret="wrong"), SimpleNamespace(user_id="owner")))
     assert denied.value.status_code == 403
 
     result = asyncio.run(
-        meetings.end_meeting("ABCDEFGH", MeetingEnd(host_secret="correct"))
+        meetings.end_meeting("ABCDEFGH", MeetingEnd(host_secret="correct"), SimpleNamespace(user_id="owner"))
     )
     assert result == {"id": "meeting-id", "status": "processing"}
     assert session.ended is True

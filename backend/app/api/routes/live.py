@@ -3,6 +3,7 @@ import io
 import logging
 import time
 import wave
+from collections import deque
 from contextlib import suppress
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from google.genai import types
 
 from app.api.routes.history import save_record
 from app.core.config import get_settings
+from app.services.auth_service import auth_store
 from app.models.schemas import (
     JobStatus,
     Language,
@@ -248,7 +250,7 @@ async def _transcribe_live_chunk(
     request = {
         # This fallback uses generateContent; the Live-only model cannot be
         # called through that endpoint. Keep it on the 3.8 Flash audio path.
-        "model": settings.gemini_text_model,
+        "model": settings.gemini_batch_model,
         "timestamp_offset": offset,
         "include_speakers": record.diarization,
         "audio_duration_seconds": len(chunk) / (sample_rate * 2),
@@ -266,7 +268,7 @@ async def _transcribe_live_chunk(
         # utterance; defer the extra audio-only verifier to finalization so it
         # does not add a second network round trip to every live chunk.
         verify_mixed_language=False,
-        use_structured_mixed_model=True,
+        use_structured_mixed_model=False,
         preferred_speaker_language=record.preferred_speaker_language,
     )
     return [
@@ -340,7 +342,7 @@ async def _finalize_live(record: TranscriptRecord, path: Path) -> None:
                         record.error = (
                             "Final quality pass returned no speech; live preview retained"
                         ) if preview_segments else "No speech was detected"
-                    if getattr(settings, "auto_translate", False) and record.segments and any(
+                    if record.session_type == SessionType.live and getattr(settings, "auto_translate", False) and record.segments and any(
                         not item.translated_text for item in record.segments
                     ):
                         final_gemini = GeminiService()
@@ -410,8 +412,16 @@ async def live_transcription(websocket: WebSocket) -> None:
     live_entered = False
     live_session = None
     fallback_active = False
+    auth_revoked = False
     try:
-        start = LiveStart.model_validate(await websocket.receive_json())
+        hello = await asyncio.wait_for(websocket.receive_json(), timeout=10)
+        token = hello.pop("token", "") if isinstance(hello, dict) else ""
+        organizer = await auth_store.authenticate(token)
+        if not organizer:
+            await websocket.send_json({"type": "error", "message": "Sign in required"})
+            await websocket.close(code=1008)
+            return
+        start = LiveStart.model_validate(hello)
         record = TranscriptRecord(
             title=start.title,
             language=start.language,
@@ -421,6 +431,7 @@ async def live_transcription(websocket: WebSocket) -> None:
             status=JobStatus.processing,
             processing_stage=ProcessingStage.recording,
             audio_filename="pending.wav",
+            organizer_user_id=organizer.user_id,
         )
         record.audio_filename = f"{record.id}.wav"
         raw_path = get_settings().data_dir / "audio" / f"{record.id}.pcm.part"
@@ -461,7 +472,9 @@ async def live_transcription(websocket: WebSocket) -> None:
             # source captions and Tamil translation during capture instead of
             # waiting for the Stop button when the native stream emits no text.
             logger.info("Using Gemini chunk preview for live captions")
-        queue: asyncio.Queue[tuple[bytes, float] | None] = asyncio.Queue(
+        # A queued ``None`` item stops the worker. A tuple whose first value is
+        # ``None`` is an utterance boundary for Gemini's hybrid VAD.
+        queue: asyncio.Queue[tuple[bytes | None, float] | None] = asyncio.Queue(
             maxsize=max(4, getattr(settings, "live_preview_queue_size", 50))
         )
         chunk_bytes = max(
@@ -530,6 +543,9 @@ async def live_transcription(websocket: WebSocket) -> None:
                     await live_session.send_realtime_input(audio_stream_end=True)
                     return
                 chunk, _offset = queued
+                if chunk is None:
+                    await live_session.send_realtime_input(audio_stream_end=True)
+                    continue
                 try:
                     await live_session.send_realtime_input(
                         audio=types.Blob(
@@ -566,6 +582,13 @@ async def live_transcription(websocket: WebSocket) -> None:
                                 await process_fallback_chunk(bytes(fallback_buffer), fallback_offset)
                             return
                         next_chunk, next_offset = next_item
+                        if next_chunk is None:
+                            if fallback_buffer:
+                                await process_fallback_chunk(
+                                    bytes(fallback_buffer), fallback_offset
+                                )
+                                fallback_buffer.clear()
+                            continue
                         fallback_buffer.extend(next_chunk)
                         if len(fallback_buffer) < fallback_chunk_bytes:
                             continue
@@ -607,6 +630,8 @@ async def live_transcription(websocket: WebSocket) -> None:
                         await process_fallback_chunk(bytes(fallback_buffer), fallback_offset)
                     return
                 chunk, offset = queued
+                if chunk is None:
+                    continue
                 if not fallback_buffer:
                     fallback_offset = offset
                 fallback_buffer.extend(chunk)
@@ -700,8 +725,24 @@ async def live_transcription(websocket: WebSocket) -> None:
         # session than the provider can maintain.
         live_max_minutes = min(settings.max_live_minutes, 10.0)
         max_pcm_bytes = int(live_max_minutes * 60 * start.sample_rate * 2)
+        last_auth_check = time.monotonic()
+        native_speech_open = False
+        native_silence_ms = 0.0
+        native_preroll: deque[tuple[bytes, float]] = deque(maxlen=3)
         while True:
-            message = await websocket.receive()
+            try:
+                message = await asyncio.wait_for(websocket.receive(), timeout=30)
+            except TimeoutError:
+                message = {}
+            if time.monotonic() - last_auth_check >= 30:
+                if not await auth_store.authenticate(token):
+                    await websocket.send_json({"type": "error", "message": "Your session has expired. Sign in again."})
+                    if pending:
+                        raw_file.write(bytes(pending))
+                        pending.clear()
+                    auth_revoked = True
+                    break
+                last_auth_check = time.monotonic()
             if message.get("bytes") is not None:
                 chunk = message["bytes"]
                 if pcm_size + len(chunk) > max_pcm_bytes:
@@ -712,28 +753,86 @@ async def live_transcription(websocket: WebSocket) -> None:
                 pending.extend(chunk)
                 while len(pending) >= chunk_bytes:
                     captured_chunk = bytes(pending[:chunk_bytes])
+                    captured_offset = queued_preview_offset
+                    was_native_speech_open = native_speech_open
                     has_sustained_voice = voice_activity.feed(captured_chunk)
                     if has_sustained_voice:
                         last_voice_input_at = time.monotonic()
-                    # Always retain the original timeline, but never send
-                    # silence/noise frames to Gemini. Sending zero-filled
-                    # frames still allows a generative live model to invent
-                    # captions during pauses.
+                        native_speech_open = True
+                        native_silence_ms = 0.0
+                    elif native_speech_open:
+                        native_silence_ms += (
+                            len(captured_chunk) / (start.sample_rate * 2) * 1000
+                        )
+                    # Always retain the original timeline. After speech starts,
+                    # send a short gated-silence tail to the native transcription
+                    # stream so it can observe the pause and finalize the utterance.
+                    # Long idle periods are not sent, and received text is still
+                    # rejected unless it follows recent voice-level audio.
                     live_chunk = (
                         _gate_live_pcm(captured_chunk, settings.live_voice_rms_threshold)
                         if has_sustained_voice
                         else bytes(len(captured_chunk))
                     )
-                    raw_file.write(live_chunk)
+                    # Retain the original audio for final transcription. VAD
+                    # is imperfect and must not permanently erase quiet words
+                    # or word beginnings from the saved recording.
+                    raw_file.write(captured_chunk)
+                    if (
+                        live_session is not None
+                        and has_sustained_voice
+                        and not was_native_speech_open
+                    ):
+                        # Local VAD needs several frames before it commits to
+                        # speech. Replay a short gated pre-roll so initial words
+                        # and consonants are not clipped from the model input.
+                        while native_preroll:
+                            prefix_chunk, prefix_offset = native_preroll.popleft()
+                            if queue.full():
+                                queue.get_nowait()
+                            queue.put_nowait((prefix_chunk, prefix_offset))
                     # The chunk-preview worker needs the complete timeline,
                     # including gated silence, to finish a one-second window
                     # during a pause. It checks for speech before invoking the
                     # model, so silence does not trigger transcription calls.
-                    if has_sustained_voice or live_session is None:
+                    if (
+                        live_session is None
+                        or has_sustained_voice
+                        or _has_recent_voice_activity(
+                            last_voice_input_at,
+                            time.monotonic(),
+                            settings.live_voice_activity_window_seconds,
+                        )
+                    ):
                         if queue.full():
                             queue.get_nowait()
                         queue.put_nowait((live_chunk, queued_preview_offset))
-                    queued_preview_offset += len(captured_chunk) / (start.sample_rate * 2)
+                    elif live_session is not None and not native_speech_open:
+                        native_preroll.append(
+                            (
+                                _gate_live_pcm(
+                                    captured_chunk,
+                                    settings.live_voice_rms_threshold,
+                                ),
+                                captured_offset,
+                            )
+                        )
+                    captured_seconds = len(captured_chunk) / (start.sample_rate * 2)
+                    queued_preview_offset += captured_seconds
+                    if (
+                        live_session is not None
+                        and native_speech_open
+                        and native_silence_ms >= 700.0
+                    ):
+                        # Official hybrid VAD: finalize the utterance promptly,
+                        # while keeping server-side speech-start detection and
+                        # allowing a later audio frame to reopen the stream.
+                        if queue.full():
+                            queue.get_nowait()
+                        queue.put_nowait((None, queued_preview_offset))
+                        native_speech_open = False
+                        native_silence_ms = 0.0
+                        native_preroll.clear()
                     del pending[:chunk_bytes]
             elif message.get("text") == "stop":
                 stopped = True
@@ -746,16 +845,12 @@ async def live_transcription(websocket: WebSocket) -> None:
                             tail = _gate_live_pcm(
                                 bytes(pending), settings.live_voice_rms_threshold
                             )
-                            raw_file.write(tail)
+                            raw_file.write(bytes(pending))
                             await queue.put((tail, queued_preview_offset))
                         pending.clear()
                     else:
                         if pending:
-                            raw_file.write(
-                                _gate_live_pcm(
-                                    bytes(pending), settings.live_voice_rms_threshold
-                                )
-                            )
+                            raw_file.write(bytes(pending))
                         pending.clear()
                         while not queue.empty():
                             queue.get_nowait()
@@ -776,7 +871,7 @@ async def live_transcription(websocket: WebSocket) -> None:
                         tail = _gate_live_pcm(
                             bytes(pending), settings.live_voice_rms_threshold
                         )
-                        raw_file.write(tail)
+                        raw_file.write(bytes(pending))
                         await queue.put((tail, queued_preview_offset))
                         pending.clear()
                     await queue.put(None)
@@ -808,8 +903,9 @@ async def live_transcription(websocket: WebSocket) -> None:
         record.duration_seconds = pcm_size / (start.sample_rate * 2)
         await save_record(record)
         _start_background_finalization(record, path)
-        await websocket.send_json({"type": "finalizing", "id": record.id})
-        await websocket.close()
+        if not auth_revoked:
+            await websocket.send_json({"type": "finalizing", "id": record.id})
+        await websocket.close(code=1008 if auth_revoked else 1000)
     except WebSocketDisconnect:
         pass
     except Exception as exc:

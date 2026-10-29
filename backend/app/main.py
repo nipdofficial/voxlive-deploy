@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import admin, auth, history, live, meetings, transcribe
 from app.core.config import get_settings
+from app.core.origin_verification import OriginVerificationMiddleware
 from app.core.observability import configure_error_monitoring, configure_logging, metrics
 from app.models.schemas import JobStatus, ProcessingStage, SessionType
 from app.services.diarization_service import warm_up_diarization
@@ -48,7 +49,7 @@ async def _recover_interrupted_live_jobs() -> None:
         ProcessingStage.transcribing,
         ProcessingStage.diarizing,
     }
-    for record in await history.list_history():
+    for record in await history.all_history():
         if record.session_type != SessionType.live or record.status != JobStatus.processing:
             continue
 
@@ -80,7 +81,7 @@ async def _recover_interrupted_live_jobs() -> None:
 async def _recover_file_jobs() -> None:
     """Requeue persisted Record/Upload work after an API restart."""
     settings = get_settings()
-    for record in await history.list_history():
+    for record in await history.all_history():
         if record.session_type not in (SessionType.record, SessionType.upload):
             continue
         if record.status not in (JobStatus.queued, JobStatus.processing):
@@ -109,7 +110,7 @@ async def _recover_stale_meeting_jobs() -> None:
         for session in meeting_registry.sessions.values()
         if session.started and not session.ending
     }
-    for record in await history.list_history():
+    for record in await history.all_history():
         if record.session_type != SessionType.meeting:
             continue
         if record.status not in (JobStatus.queued, JobStatus.processing):
@@ -146,6 +147,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 settings = get_settings()
 configure_error_monitoring(settings.sentry_dsn, settings.app_environment)
 app = FastAPI(title=settings.app_name, version="1.0.0", lifespan=lifespan)
+app.add_middleware(OriginVerificationMiddleware, secret=settings.origin_verification_secret)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.origins,

@@ -175,6 +175,7 @@ class MeetingCreate(BaseModel):
 class MeetingJoin(BaseModel):
     display_name: str = Field(min_length=1, max_length=80)
     shared_mic: bool = False
+    invitation: str = Field(min_length=1, max_length=200)
 
 
 class MeetingConnection(BaseModel):
@@ -186,6 +187,7 @@ class MeetingConnection(BaseModel):
     display_name: str
     is_host: bool = False
     host_secret: str | None = None
+    invitation_secret: str | None = None
     language: Language | None = None
     preferred_speaker_language: Language | None = None
     start_mode: SessionType = SessionType.live

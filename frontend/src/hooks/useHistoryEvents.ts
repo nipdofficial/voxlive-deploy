@@ -2,6 +2,7 @@ import { useEffect } from "react";
 
 import { HISTORY_WS_URL } from "../api";
 import type { TranscriptRecord } from "../types";
+import { loadSession } from "../authStorage";
 
 export function useHistoryEvents(
   onRecord: (record: TranscriptRecord) => void,
@@ -14,6 +15,7 @@ export function useHistoryEvents(
     const connect = () => {
       if (disposed) return;
       socket = new WebSocket(HISTORY_WS_URL);
+      socket.onopen = () => socket?.send(JSON.stringify({ token: loadSession()?.token ?? "" }));
       socket.onmessage = (event) => {
         try {
           const message = JSON.parse(String(event.data));

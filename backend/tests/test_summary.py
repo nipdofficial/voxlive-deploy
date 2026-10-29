@@ -11,6 +11,7 @@ from app.models.schemas import (
     TranscriptRecord,
 )
 from app.services.gemini_service import GeminiService
+from app.models.auth import Role
 
 
 def test_gemini_summary_uses_structured_response() -> None:
@@ -69,7 +70,7 @@ def test_summary_endpoint_generates_and_persists(monkeypatch) -> None:
     monkeypatch.setattr(history, "GeminiService", FakeGemini)
     history._summary_locks.clear()
 
-    result = asyncio.run(history.generate_summary(record.id))
+    result = asyncio.run(history.generate_summary(record.id, SimpleNamespace(role=Role.admin)))
 
     assert result.overview == "The report will be sent tomorrow."
     assert record.summary_source_hash
@@ -98,6 +99,6 @@ def test_summary_endpoint_returns_cached_result(monkeypatch) -> None:
     monkeypatch.setattr(history, "get_record", get_record)
     monkeypatch.setattr(history, "GeminiService", UnexpectedGemini)
 
-    result = asyncio.run(history.generate_summary(record.id))
+    result = asyncio.run(history.generate_summary(record.id, SimpleNamespace(role=Role.admin)))
 
     assert result.overview == "Cached summary"

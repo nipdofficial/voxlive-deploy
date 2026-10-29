@@ -770,6 +770,7 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
       socket.onopen = () => socket.send(JSON.stringify({
         host_secret: connection.host_secret,
         participant_identity: connection.participant_identity,
+        token: authToken ?? "",
       }));
       socket.onmessage = (event) => {
         try {
@@ -807,7 +808,7 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
         if (!settled) finish(new Error("Meeting audio connection closed before it was ready"));
       };
     });
-  }, [liveAudio.stream, onAudioBuffer, releasePreparedMeetingMic]);
+  }, [authToken, liveAudio.stream, onAudioBuffer, releasePreparedMeetingMic]);
 
   // This cleanup belongs to unmount only. The native audio hook can replace
   // its stream object as state changes; binding cleanup to that object closed
@@ -1128,7 +1129,7 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
     socket.onopen = () => {
       // Record shows live source captions and detected language, but Tamil
       // translation is added by the authoritative full-audio pass after Stop.
-      socket.send(JSON.stringify({ language, session_type: sessionType, diarization, realtime_translation: sessionType === "Live", sample_rate: 16000, title: `${sessionType} • ${new Date().toLocaleString()}` }));
+      socket.send(JSON.stringify({ token: authToken ?? "", language, session_type: sessionType, diarization, realtime_translation: sessionType === "Live", sample_rate: 16000, title: `${sessionType} • ${new Date().toLocaleString()}` }));
     };
     socket.onmessage = (event) => {
       void (async () => {
@@ -1721,7 +1722,7 @@ export default function App({ onSignOut, authToken }: { onSignOut?: () => void; 
                   <Text style={styles.primaryText}>{busy && !active ? status : active ? `${primaryLabel} · ${formatTime(shownDuration)}` : primaryLabel}</Text>
                 </LinearGradient>
               </Pressable>
-              <View style={styles.privacyRow}><Feather name="shield" size={13} color="#716C7F" /><Text style={styles.privacyText}>Your audio is encrypted in transit and never used to train public models.</Text></View>
+              <View style={styles.privacyRow}><Feather name="shield" size={13} color="#716C7F" /><Text style={styles.privacyText}>Your audio is sent to VoxLive for transcription.</Text></View>
             </View>
 
             <TranscriptPanel segments={segments} interimText={interimText} interimLanguage={interimLanguage} active={active} status={status} processingStage={processingStage} duration={shownDuration} intensity={voiceIntensity} exportRecord={currentExportRecord} copied={copiedRecordId === currentRecordId} exportBusy={exporting?.id === currentRecordId ? exporting.kind : null} onCopy={(record) => void copyTranscript(record)} onSaveTranscript={(record) => void saveTranscript(record)} summarizing={summarizingRecordId === currentRecordId} summaryCopied={copiedSummaryRecordId === currentRecordId} onGenerateSummary={(record) => void generateSummary(record)} onCopySummary={(summary) => { if (currentRecordId) void copySummary(currentRecordId, summary); }} onSaveSummary={(record) => void saveSummary(record)} onUpdateRecord={(record, next) => void editTranscriptSegments(record, next)} onRenameSpeaker={(record, oldName, newName) => void renameSpeaker(record, oldName, newName)} onTranslate={(record, target) => void translateRecord(record, target)} translating={translatingRecordId === currentRecordId} errorMessage={meetingError} styles={styles} />

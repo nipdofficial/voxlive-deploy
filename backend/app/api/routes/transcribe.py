@@ -5,9 +5,12 @@ import wave
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 
 from app.api.routes.history import get_record, save_record
+from app.api.routes.auth import current_session
+from app.models.auth import SessionRecord
+from app.services.history_access import require_history_access
 from app.core.config import get_settings
 from app.models.schemas import (
     JobAccepted,
@@ -153,21 +156,7 @@ async def _process(record: TranscriptRecord, path: Path, mime_type: str) -> None
                 record.language,
                 include_speakers=record.diarization,
                 audio_duration_seconds=known_duration,
-                translate_to=get_settings().target_language
-                if get_settings().auto_translate
-                else None,
             )
-            settings = get_settings()
-            if settings.auto_translate and transcript and any(
-                not item.translated_text for item in transcript
-            ):
-                translations = await gemini.translate_segments(
-                    transcript, settings.target_language
-                )
-                transcript = [
-                    item.model_copy(update={"translated_text": translated})
-                    for item, translated in zip(transcript, translations, strict=True)
-                ]
         record.segments = transcript
         if record.diarization and transcript:
             record.processing_stage = ProcessingStage.diarizing
@@ -220,6 +209,7 @@ async def transcribe_audio(
     diarization: bool = Form(False),
     title: str = Form("Untitled transcript", max_length=200),
     duration_seconds: float | None = Form(default=None, gt=0, le=28_800),
+    organizer: SessionRecord = Depends(current_session),
 ) -> JobAccepted:
     if session_type in (SessionType.live, SessionType.meeting):
         raise HTTPException(status_code=400, detail="Use the realtime API for this session type")
@@ -240,6 +230,7 @@ async def transcribe_audio(
         diarization=diarization,
         duration_seconds=duration_seconds,
         audio_filename=path.name,
+        organizer_user_id=organizer.user_id,
     )
     await save_record(record)
     _start_task(_process(record, path, _upload_mime_type(file.content_type, suffix)), record.id)
@@ -247,10 +238,8 @@ async def transcribe_audio(
 
 
 @router.post("/{record_id}/cancel", response_model=JobAccepted)
-async def cancel_transcription(record_id: str) -> JobAccepted:
-    record = await get_record(record_id)
-    if not record:
-        raise HTTPException(status_code=404, detail="Transcript not found")
+async def cancel_transcription(record_id: str, organizer: SessionRecord = Depends(current_session)) -> JobAccepted:
+    record = require_history_access(await get_record(record_id), organizer)
     if record.status not in (JobStatus.queued, JobStatus.processing):
         raise HTTPException(status_code=409, detail="Job is not active")
     cancelled = await cancel_task(record_id)
@@ -264,10 +253,8 @@ async def cancel_transcription(record_id: str) -> JobAccepted:
 
 
 @router.post("/{record_id}/retry", response_model=JobAccepted, status_code=202)
-async def retry_transcription(record_id: str) -> JobAccepted:
-    record = await get_record(record_id)
-    if not record:
-        raise HTTPException(status_code=404, detail="Transcript not found")
+async def retry_transcription(record_id: str, organizer: SessionRecord = Depends(current_session)) -> JobAccepted:
+    record = require_history_access(await get_record(record_id), organizer)
     if record.status != JobStatus.failed or not record.audio_filename:
         raise HTTPException(status_code=409, detail="Only failed file jobs can be retried")
     path = get_settings().data_dir / "audio" / Path(record.audio_filename).name

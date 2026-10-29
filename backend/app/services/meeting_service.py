@@ -140,10 +140,12 @@ class MeetingSession:
         scheduled_start: datetime | None = None,
         scheduled_end: datetime | None = None,
         organizer_user_id: str | None = None,
+        invitation_secret: str | None = None,
     ) -> None:
         self.code = code
         self.room_name = f"helascribe-{code.lower()}"
         self.host_secret = host_secret
+        self.invitation_secret = invitation_secret or secrets.token_urlsafe(32)
         self.record = record
         self.language = language
         self.title = title
@@ -434,23 +436,26 @@ class MeetingSession:
             chunk, offset, commit_after = queued
             if not state.speech_activity.feed(chunk):
                 continue
+            transcribe_started = time.perf_counter()
             try:
                 raw = await gemini.transcribe_file(
                     pcm_wav_bytes(chunk),
                     "audio/wav",
                     self.language,
-                    # Keep the previous single-call preview path. The
-                    # multimodal model has the audio context while translating
-                    # each short utterance, which is more accurate for live
-                    # Sinhala/Tamil/English speech than a second text-only
-                    # request detached from the audio.
+                    # Return source speech first; translation is dispatched
+                    # separately so provider delays do not block live captions.
                     model=settings.gemini_text_model,
                     audio_duration_seconds=len(chunk) / (SAMPLE_RATE * 2),
                     request_timeout_seconds=settings.gemini_live_timeout_seconds,
-                    translate_to=settings.target_language if live_translation_enabled else None,
                     preferred_speaker_language=self.record.preferred_speaker_language,
                     verify_mixed_language=False,
                     use_structured_mixed_model=False,
+                )
+                logger.info(
+                    "meeting_chunk_transcription duration_ms=%.1f audio_ms=%.1f segments=%d",
+                    (time.perf_counter() - transcribe_started) * 1000,
+                    len(chunk) / (SAMPLE_RATE * 2) * 1000,
+                    len(raw),
                 )
                 labeled = label_segments(
                     raw,
@@ -473,12 +478,12 @@ class MeetingSession:
                     if (segment.start + segment.end) / 2 < commit_after:
                         continue
                     segment = self._canonical_segment(segment)
-                    if segment.translated_text:
+                    if not live_translation_enabled or segment.translated_text:
                         segment = segment.model_copy(update={"is_final": True})
                     published.append(segment)
                     state.preview_segments.append(segment)
-                    if segment.is_final:
-                        self.record.segments.append(segment)
+                    self.record.segments.append(segment)
+                    await self._broadcast_segment(segment)
                     logger.info(
                         "meeting_source_ready meeting_id=%s segment_id=%s sequence=%s language=%s",
                         self.record.id,
@@ -503,6 +508,11 @@ class MeetingSession:
                 )
                 await save_record(self.record)
             except Exception as exc:
+                logger.warning(
+                    "meeting_chunk_transcription_failed duration_ms=%.1f error_type=%s",
+                    (time.perf_counter() - transcribe_started) * 1000,
+                    type(exc).__name__,
+                )
                 logger.exception(
                     "meeting_live_transcription_failed meeting_id=%s participant=%s",
                     self.record.id,
@@ -841,6 +851,7 @@ class MeetingRegistry:
                 {
                     "code": session.code,
                     "host_secret": session.host_secret,
+                    "invitation_secret": session.invitation_secret,
                     "record_id": session.record.id,
                     "title": session.title,
                     "max_participants": session.max_participants,
@@ -861,6 +872,7 @@ class MeetingRegistry:
         except (OSError, ValueError):
             logger.exception("Could not load pending meetings")
             return
+        migrated = False
         async with self.lock:
             for entry in entries:
                 try:
@@ -873,11 +885,17 @@ class MeetingRegistry:
                         scheduled_start=record.scheduled_start,
                         scheduled_end=record.scheduled_end,
                         organizer_user_id=record.organizer_user_id,
+                        invitation_secret=entry.get("invitation_secret"),
                     )
                     session.created_at = datetime.fromisoformat(entry["created_at"])
                     self.sessions[session.code] = session
+                    if not entry.get("invitation_secret"):
+                        entry["invitation_secret"] = session.invitation_secret
+                        migrated = True
                 except (KeyError, TypeError, ValueError):
                     logger.warning("Skipping an invalid saved meeting", exc_info=True)
+            if migrated:
+                await asyncio.to_thread(self._write_pending, json.dumps(entries))
 
     async def create(
         self,

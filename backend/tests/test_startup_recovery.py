@@ -38,7 +38,7 @@ def test_startup_marks_orphaned_recordings_as_failed(monkeypatch, tmp_path: Path
         return item
 
     monkeypatch.setattr(main, "get_settings", lambda: SimpleNamespace(data_dir=tmp_path))
-    monkeypatch.setattr(main.history, "list_history", list_history)
+    monkeypatch.setattr(main.history, "all_history", list_history)
     monkeypatch.setattr(main.history, "save_record", save_record)
 
     asyncio.run(main._recover_interrupted_live_jobs())
@@ -64,7 +64,7 @@ def test_startup_resumes_saved_live_finalization(monkeypatch, tmp_path: Path) ->
         return [record]
 
     monkeypatch.setattr(main, "get_settings", lambda: SimpleNamespace(data_dir=tmp_path))
-    monkeypatch.setattr(main.history, "list_history", list_history)
+    monkeypatch.setattr(main.history, "all_history", list_history)
     monkeypatch.setattr(
         main.live,
         "_start_background_finalization",

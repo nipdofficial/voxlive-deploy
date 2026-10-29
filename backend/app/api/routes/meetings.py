@@ -1,14 +1,17 @@
 import hmac
 import io
-from datetime import datetime, timezone
+import asyncio
+import time
+from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, Depends, Header, HTTPException, WebSocket, WebSocketDisconnect, status
 from fastapi.responses import Response
 
 from app.api.routes.history import delete_history, list_history, save_record
 from app.api.routes.auth import current_session
 from app.core.config import get_settings
 from app.models.auth import SessionRecord
+from app.services.auth_service import auth_store
 from app.models.schemas import (
     JobStatus,
     MeetingConnection,
@@ -34,6 +37,11 @@ from app.services.meeting_service import (
 router = APIRouter(prefix="/meetings", tags=["meetings"])
 
 
+def _same_secret(expected: str, supplied: str) -> bool:
+    """Compare arbitrary user input without failing on non-ASCII text."""
+    return hmac.compare_digest(expected.encode("utf-8"), supplied.encode("utf-8"))
+
+
 def _connection(session, participant, token: str, *, is_host: bool) -> MeetingConnection:
     return MeetingConnection(
         livekit_url=get_settings().livekit_url or "",
@@ -44,6 +52,7 @@ def _connection(session, participant, token: str, *, is_host: bool) -> MeetingCo
         display_name=participant.display_name,
         is_host=is_host,
         host_secret=session.host_secret if is_host else None,
+        invitation_secret=session.invitation_secret if is_host else None,
         language=session.language,
         preferred_speaker_language=session.record.preferred_speaker_language,
         start_mode=session.record.start_mode,
@@ -137,7 +146,7 @@ async def list_managed_meetings(
 async def list_managed_history(
     organizer: SessionRecord = Depends(current_session),
 ) -> list[TranscriptRecord]:
-    return [record for record in await list_history() if record.organizer_user_id == organizer.user_id]
+    return [record for record in await list_history(organizer=organizer) if record.organizer_user_id == organizer.user_id]
 
 
 @router.delete("/{code}", status_code=status.HTTP_204_NO_CONTENT)
@@ -154,7 +163,7 @@ async def delete_managed_meeting(
         raise HTTPException(status_code=409, detail="A live session must be ended before it can be removed")
     meeting_registry.sessions.pop(session.code, None)
     await meeting_registry.persist_pending()
-    await delete_history(session.record.id)
+    await delete_history(session.record.id, organizer)
 
 
 @router.post("/{code}/organizer", response_model=MeetingConnection)
@@ -179,19 +188,51 @@ async def resume_organizer_meeting(
 
 
 @router.get("/{code}", response_model=SessionInfo)
-async def get_session_info(code: str) -> SessionInfo:
+async def get_session_info(code: str, authorization: str | None = Header(default=None)) -> SessionInfo:
     session = meeting_registry.get(code)
     if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    scheme, _, token = (authorization or "").partition(" ")
+    organizer = await auth_store.authenticate(token) if scheme.lower() == "bearer" and token else None
+    is_owner = organizer and organizer.user_id == session.organizer_user_id
+    has_invitation = bool(scheme.lower() == "invite" and token and _same_secret(session.invitation_secret, token))
+    if not is_owner and not has_invitation:
         raise HTTPException(status_code=404, detail="Session not found")
     return _session_info(session)
 
 
+def _authorize_attendee(code: str, authorization: str | None):
+    session = meeting_registry.get(code)
+    scheme, _, token = (authorization or "").partition(" ")
+    if not session or scheme.lower() != "bearer" or not token:
+        raise HTTPException(status_code=404, detail="Session not found or access denied")
+    try:
+        from livekit import api
+        settings = get_settings()
+        claims = api.TokenVerifier(settings.livekit_api_key, settings.livekit_api_secret, leeway=timedelta(0)).verify(token)
+        grants = claims.video
+        if not grants or not grants.room_join or grants.room != session.room_name:
+            raise ValueError("Wrong room")
+        if not any(item.identity == claims.identity for item in session.record.participants):
+            raise ValueError("Unknown participant")
+    except Exception:
+        raise HTTPException(status_code=404, detail="Session not found or access denied") from None
+    return session
+
+
+@router.get("/{code}/transcript")
+async def attendee_transcript(code: str, authorization: str | None = Header(default=None)) -> dict:
+    """Return only the joined room's transcript to a valid room participant."""
+    session = _authorize_attendee(code, authorization)
+    return {"segments": [segment.model_dump() for segment in session.record.segments], "error": session.record.error}
+
+
 @router.post("/{code}/start", response_model=SessionInfo)
-async def start_meeting(code: str, body: MeetingStart) -> SessionInfo:
+async def start_meeting(code: str, body: MeetingStart, organizer: SessionRecord = Depends(current_session)) -> SessionInfo:
     session = meeting_registry.get(code)
     if not session or session.ending:
         raise HTTPException(status_code=404, detail="Session not found or already ended")
-    if not hmac.compare_digest(session.host_secret, body.host_secret):
+    if session.organizer_user_id != organizer.user_id or not _same_secret(session.host_secret, body.host_secret):
         raise HTTPException(status_code=403, detail="Only the session host can start it")
     if session.scheduled_start and session.scheduled_start > datetime.now(timezone.utc):
         raise HTTPException(
@@ -222,12 +263,14 @@ async def stream_organizer_audio(code: str, websocket: WebSocket) -> None:
         hello = await websocket.receive_json()
         session = meeting_registry.get(code)
         host_secret = str(hello.get("host_secret") or "") if isinstance(hello, dict) else ""
+        organizer_token = str(hello.get("token") or "") if isinstance(hello, dict) else ""
         identity = str(hello.get("participant_identity") or "") if isinstance(hello, dict) else ""
         if not session or session.ending or not session.started:
             await websocket.send_json({"type": "error", "message": "Session is not live"})
             await websocket.close(code=1008)
             return
-        if not hmac.compare_digest(session.host_secret, host_secret):
+        organizer = await auth_store.authenticate(organizer_token)
+        if not organizer or session.organizer_user_id != organizer.user_id or not _same_secret(session.host_secret, host_secret):
             await websocket.send_json({"type": "error", "message": "Only the organizer can provide audio"})
             await websocket.close(code=1008)
             return
@@ -238,18 +281,30 @@ async def stream_organizer_audio(code: str, websocket: WebSocket) -> None:
             return
         state = session._state_for(participant.identity, participant.display_name, True)
         await websocket.send_json({"type": "ready"})
+        last_auth_check = time.monotonic()
         while not session.ending:
-            data = await websocket.receive_bytes()
+            try:
+                data = await asyncio.wait_for(websocket.receive_bytes(), timeout=30)
+            except TimeoutError:
+                data = None
+            if time.monotonic() - last_auth_check >= 30:
+                current = await auth_store.authenticate(organizer_token)
+                if not current or current.user_id != session.organizer_user_id:
+                    await websocket.close(code=1008)
+                    return
+                last_auth_check = time.monotonic()
+            if data is None:
+                continue
             await session.ingest_pcm(state, data)
     except WebSocketDisconnect:
         return
 
 
 @router.get("/{code}/qr", response_class=Response)
-async def get_session_qr(code: str) -> Response:
+async def get_session_qr(code: str, organizer: SessionRecord = Depends(current_session)) -> Response:
     """Return a QR code PNG for the given session room code."""
     session = meeting_registry.get(code)
-    if not session:
+    if not session or session.organizer_user_id != organizer.user_id:
         raise HTTPException(status_code=404, detail="Session not found")
     try:
         import qrcode
@@ -261,7 +316,7 @@ async def get_session_qr(code: str) -> Response:
             border=4,
         )
         app_url = get_settings().public_app_url.rstrip("/")
-        qr.add_data(f"{app_url}/?session={code.upper()}")
+        qr.add_data(f"{app_url}/?session={code.upper()}#invite={session.invitation_secret}")
         qr.make(fit=True)
         # qrcode[pil] is installed in the deployment. Use its Pillow image
         # backend; PyPNGImage requires a separate pypng dependency and caused
@@ -280,6 +335,8 @@ async def join_meeting(code: str, body: MeetingJoin) -> MeetingConnection:
     session = meeting_registry.get(code)
     if not session or session.ending:
         raise HTTPException(status_code=404, detail="Session not found or already ended")
+    if not _same_secret(session.invitation_secret, body.invitation):
+        raise HTTPException(status_code=404, detail="Session not found or already ended")
     if not session.started:
         raise HTTPException(status_code=409, detail="The organizer has not started this session yet")
     try:
@@ -297,11 +354,11 @@ async def join_meeting(code: str, body: MeetingJoin) -> MeetingConnection:
 
 
 @router.patch("/{code}", response_model=SessionInfo)
-async def update_meeting(code: str, body: MeetingUpdate) -> SessionInfo:
+async def update_meeting(code: str, body: MeetingUpdate, organizer: SessionRecord = Depends(current_session)) -> SessionInfo:
     session = meeting_registry.get(code)
     if not session or session.ending:
         raise HTTPException(status_code=404, detail="Session not found or already ended")
-    if not hmac.compare_digest(session.host_secret, body.host_secret):
+    if session.organizer_user_id != organizer.user_id or not _same_secret(session.host_secret, body.host_secret):
         raise HTTPException(status_code=403, detail="Only the session host can update it")
     session.language = body.language
     session.record.language = body.language
@@ -310,11 +367,11 @@ async def update_meeting(code: str, body: MeetingUpdate) -> SessionInfo:
 
 
 @router.post("/{code}/end", status_code=status.HTTP_202_ACCEPTED)
-async def end_meeting(code: str, body: MeetingEnd) -> dict[str, str]:
+async def end_meeting(code: str, body: MeetingEnd, organizer: SessionRecord = Depends(current_session)) -> dict[str, str]:
     session = meeting_registry.get(code)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
-    if not hmac.compare_digest(session.host_secret, body.host_secret):
+    if session.organizer_user_id != organizer.user_id or not _same_secret(session.host_secret, body.host_secret):
         raise HTTPException(status_code=403, detail="Only the session host can end it")
     await session.end()
     await meeting_registry.persist_pending()
@@ -322,10 +379,8 @@ async def end_meeting(code: str, body: MeetingEnd) -> dict[str, str]:
 
 
 @router.post("/{code}/feedback", response_model=MeetingFeedback)
-async def submit_feedback(code: str, body: MeetingFeedbackRequest) -> MeetingFeedback:
-    session = meeting_registry.get(code)
-    if not session:
-        raise HTTPException(status_code=404, detail="Session not found")
+async def submit_feedback(code: str, body: MeetingFeedbackRequest, authorization: str | None = Header(default=None)) -> MeetingFeedback:
+    session = _authorize_attendee(code, authorization)
     feedback = MeetingFeedback(
         display_name=body.display_name.strip(),
         rating=body.rating,

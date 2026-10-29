@@ -16,7 +16,7 @@ import { File, Paths } from "expo-file-system";
 import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 
-import { getSessionInfo, getTranscript, joinMeeting, submitMeetingFeedback } from "./api";
+import { getAttendeeTranscript, getSessionInfo, joinMeeting, submitMeetingFeedback } from "./api";
 import type { MeetingClient, MeetingParticipantView } from "./livekitMeeting";
 import type { Segment, SessionInfo } from "./types";
 
@@ -51,7 +51,7 @@ function upsertLiveSegment(current: Segment[], next: Segment) {
   return sortLiveSegments(updated);
 }
 
-export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) {
+export default function GuestAttendeeScreen({ roomCode, invitation }: { roomCode: string; invitation: string }) {
   const [info, setInfo] = useState<SessionInfo | null>(null);
   const [name, setName] = useState("");
   const [segments, setSegments] = useState<Segment[]>([]);
@@ -60,6 +60,7 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
   const transcriptScrollRef = useRef<ScrollView | null>(null);
   const userAtTranscriptTop = useRef(true);
   const [client, setClient] = useState<MeetingClient | null>(null);
+  const attendeeTokenRef = useRef<string | null>(null);
   const [status, setStatus] = useState("loading");
   const [error, setError] = useState<string | null>(null);
   const [startedAt, setStartedAt] = useState<number | null>(null);
@@ -86,14 +87,14 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
   }, []);
 
   useEffect(() => {
-    void getSessionInfo(roomCode).then((session) => {
+    void getSessionInfo(roomCode, invitation).then((session) => {
       setInfo(session);
       setStatus(session.status === "upcoming" ? "upcoming" : session.is_started ? session.is_active ? "ready" : "ended" : "waiting");
     }).catch((caught) => {
       setStatus("error");
       setError(caught instanceof Error ? caught.message : "This session is not available");
     });
-  }, [roomCode]);
+  }, [roomCode, invitation]);
 
   useEffect(() => {
     if (!startedAt || status === "ended" || status === "left") return;
@@ -113,7 +114,8 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
     let cancelled = false;
     const refreshLiveLines = async () => {
       try {
-        const record = await getTranscript(info.meeting_id);
+        if (!attendeeTokenRef.current) return;
+        const record = await getAttendeeTranscript(roomCode, attendeeTokenRef.current);
         if (cancelled) return;
         if (record.error) {
           const isCapacity = record.error.includes("429") || record.error.includes("RESOURCE_EXHAUSTED");
@@ -145,28 +147,29 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
   useEffect(() => {
     if (!info || status === "ended" || status === "left") return;
     const timer = setInterval(() => {
-      void getSessionInfo(roomCode).then(async (session) => {
+      void getSessionInfo(roomCode, invitation).then(async (session) => {
         setInfo(session);
         setStatus(session.status === "upcoming" ? "upcoming" : session.is_started ? session.is_active ? (joined ? "connected" : "ready") : "ended" : "waiting");
         if (session.is_started && !session.is_active) {
           setStatus("ended");
           await client?.disconnect();
           setClient(null);
-          const record = await getTranscript(session.meeting_id).catch(() => null);
+          const record = attendeeTokenRef.current ? await getAttendeeTranscript(roomCode, attendeeTokenRef.current).catch(() => null) : null;
           if (record?.error) setError(record.error);
           if (record?.segments.length) setSegments([...record.segments].sort((left, right) => left.start - right.start || left.end - right.end));
         }
       }).catch(() => undefined);
     }, 4000);
     return () => clearInterval(timer);
-  }, [client, info, joined, roomCode, status]);
+  }, [client, info, invitation, joined, roomCode, status]);
 
   const join = async () => {
     if (!name.trim() || !info?.is_active || !info.is_started) return;
     setError(null);
     setStatus("joining");
     try {
-      const connection = await joinMeeting(roomCode, name.trim(), false);
+      const connection = await joinMeeting(roomCode, name.trim(), false, invitation);
+      attendeeTokenRef.current = connection.token;
       if (connection.segments?.length) setSegments(sortLiveSegments(connection.segments));
       const { connectMeeting } = await import("helascribe-meeting-connector");
       const nextClient = await connectMeeting(connection.livekit_url, connection.token, {
@@ -218,20 +221,21 @@ export default function GuestAttendeeScreen({ roomCode }: { roomCode: string }) 
   };
 
   const leave = async () => {
-    if (info?.meeting_id) {
-      const record = await getTranscript(info.meeting_id).catch(() => null);
+    if (info?.meeting_id && attendeeTokenRef.current) {
+      const record = await getAttendeeTranscript(roomCode, attendeeTokenRef.current).catch(() => null);
       if (record?.segments.length) setSegments([...record.segments].sort((left, right) => left.start - right.start || left.end - right.end));
     }
     await client?.disconnect();
+    attendeeTokenRef.current = null;
     setClient(null);
     setHasJoined(false);
     setStatus("left");
   };
 
   const sendFeedback = async () => {
-    if (!name.trim() || !info) return;
+    if (!name.trim() || !info || !attendeeTokenRef.current) return;
     try {
-      await submitMeetingFeedback(roomCode, name.trim(), feedbackRating, feedbackComment);
+      await submitMeetingFeedback(roomCode, name.trim(), feedbackRating, feedbackComment, attendeeTokenRef.current);
       setFeedbackSent(true);
       setFeedbackOpen(false);
       setFeedbackComment("");

@@ -5,7 +5,7 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse
 
 from app.core.config import get_settings
@@ -20,6 +20,10 @@ from app.models.schemas import (
     TranscriptTranslate,
 )
 from app.services.gemini_service import GeminiService
+from app.api.routes.auth import current_session
+from app.models.auth import SessionRecord
+from app.services.auth_service import auth_store
+from app.services.history_access import can_access_history, require_history_access
 
 router = APIRouter(prefix="/history", tags=["history"])
 _records: dict[str, TranscriptRecord] = {}
@@ -27,19 +31,25 @@ _lock = asyncio.Lock()
 _loaded = False
 _summary_locks: dict[str, asyncio.Lock] = {}
 logger = logging.getLogger(__name__)
-_subscribers: set[asyncio.Queue[dict]] = set()
+_subscribers: dict[asyncio.Queue[dict], SessionRecord] = {}
 
 
 async def _publish(event: dict) -> None:
     """Fan out status changes without allowing slow clients to block jobs."""
-    for queue in tuple(_subscribers):
+    for queue, session in tuple(_subscribers.items()):
+        record = event.get("_access_record") or event.get("record")
+        if isinstance(record, dict):
+            record = TranscriptRecord.model_validate(record)
+        if not record or not can_access_history(record, session):
+            continue
+        outgoing = {key: value for key, value in event.items() if key != "_access_record"}
         if queue.full():
             try:
                 queue.get_nowait()
             except asyncio.QueueEmpty:
                 pass
         try:
-            queue.put_nowait(event)
+            queue.put_nowait(outgoing)
         except asyncio.QueueFull:
             logger.warning("Dropped history event for a slow subscriber")
 
@@ -92,15 +102,22 @@ async def get_record(record_id: str) -> TranscriptRecord | None:
     return _records.get(record_id)
 
 
+async def all_history() -> list[TranscriptRecord]:
+    """Internal startup recovery only; never expose this helper as a route."""
+    await _ensure_loaded()
+    return list(_records.values())
+
+
 @router.get("", response_model=list[TranscriptRecord])
 async def list_history(
     q: str | None = None,
     language: Language | None = None,
     session_type: SessionType | None = None,
     status: JobStatus | None = None,
+    organizer: SessionRecord = Depends(current_session),
 ) -> list[TranscriptRecord]:
     await _ensure_loaded()
-    records = list(_records.values())
+    records = [item for item in _records.values() if can_access_history(item, organizer)]
     if language is not None:
         records = [item for item in records if item.language == language]
     if session_type is not None:
@@ -117,18 +134,13 @@ async def list_history(
 
 
 @router.get("/{record_id}", response_model=TranscriptRecord)
-async def history_detail(record_id: str) -> TranscriptRecord:
-    record = await get_record(record_id)
-    if not record:
-        raise HTTPException(status_code=404, detail="Transcript not found")
-    return record
+async def history_detail(record_id: str, organizer: SessionRecord = Depends(current_session)) -> TranscriptRecord:
+    return require_history_access(await get_record(record_id), organizer)
 
 
 @router.patch("/{record_id}", response_model=TranscriptRecord)
-async def edit_history(record_id: str, body: TranscriptEdit) -> TranscriptRecord:
-    record = await get_record(record_id)
-    if not record:
-        raise HTTPException(status_code=404, detail="Transcript not found")
+async def edit_history(record_id: str, body: TranscriptEdit, organizer: SessionRecord = Depends(current_session)) -> TranscriptRecord:
+    record = require_history_access(await get_record(record_id), organizer)
     if record.status != JobStatus.completed:
         raise HTTPException(status_code=409, detail="Only completed transcripts can be edited")
     if body.title is not None:
@@ -146,10 +158,8 @@ async def edit_history(record_id: str, body: TranscriptEdit) -> TranscriptRecord
 
 
 @router.post("/{record_id}/speakers/rename", response_model=TranscriptRecord)
-async def rename_speaker(record_id: str, body: SpeakerRename) -> TranscriptRecord:
-    record = await get_record(record_id)
-    if not record:
-        raise HTTPException(status_code=404, detail="Transcript not found")
+async def rename_speaker(record_id: str, body: SpeakerRename, organizer: SessionRecord = Depends(current_session)) -> TranscriptRecord:
+    record = require_history_access(await get_record(record_id), organizer)
     changed = False
     for segment in record.segments:
         if segment.speaker == body.old_name:
@@ -168,10 +178,8 @@ async def rename_speaker(record_id: str, body: SpeakerRename) -> TranscriptRecor
 
 
 @router.post("/{record_id}/translate", response_model=TranscriptRecord)
-async def translate_history(record_id: str, body: TranscriptTranslate) -> TranscriptRecord:
-    record = await get_record(record_id)
-    if not record:
-        raise HTTPException(status_code=404, detail="Transcript not found")
+async def translate_history(record_id: str, body: TranscriptTranslate, organizer: SessionRecord = Depends(current_session)) -> TranscriptRecord:
+    record = require_history_access(await get_record(record_id), organizer)
     if record.status != JobStatus.completed or not record.segments:
         raise HTTPException(status_code=409, detail="A completed transcript is required")
     if body.target_language != Language.tamil:
@@ -190,22 +198,45 @@ async def translate_history(record_id: str, body: TranscriptTranslate) -> Transc
 async def history_events(websocket: WebSocket) -> None:
     await websocket.accept()
     queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=100)
-    _subscribers.add(queue)
     try:
+        hello = await asyncio.wait_for(websocket.receive_json(), timeout=10)
+        token = hello.get("token", "") if isinstance(hello, dict) else ""
+        session = await auth_store.authenticate(token)
+        if not session:
+            await websocket.close(code=1008)
+            return
+        _subscribers[queue] = session
         await websocket.send_json({"type": "ready"})
         while True:
-            event = await queue.get()
-            await websocket.send_json(event)
-    except WebSocketDisconnect:
+            event_task = asyncio.create_task(queue.get())
+            receive_task = asyncio.create_task(websocket.receive())
+            try:
+                done, _ = await asyncio.wait({event_task, receive_task}, timeout=30, return_when=asyncio.FIRST_COMPLETED)
+                if receive_task in done and receive_task.result().get("type") == "websocket.disconnect":
+                    break
+                event = event_task.result() if event_task in done else None
+            finally:
+                for task in (event_task, receive_task):
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(event_task, receive_task, return_exceptions=True)
+            session = await auth_store.authenticate(token)
+            if not session:
+                await websocket.close(code=1008)
+                return
+            _subscribers[queue] = session
+            if event is not None:
+                await websocket.send_json(event)
+    except (WebSocketDisconnect, TimeoutError, asyncio.CancelledError):
         pass
     finally:
-        _subscribers.discard(queue)
+        _subscribers.pop(queue, None)
 
 
 @router.get("/{record_id}/audio", response_class=FileResponse)
-async def history_audio(record_id: str) -> FileResponse:
-    record = await get_record(record_id)
-    if not record or not record.audio_filename:
+async def history_audio(record_id: str, organizer: SessionRecord = Depends(current_session)) -> FileResponse:
+    record = require_history_access(await get_record(record_id), organizer)
+    if not record.audio_filename:
         raise HTTPException(status_code=404, detail="Recorded audio not found")
     path = get_settings().data_dir / "audio" / Path(record.audio_filename).name
     if not path.is_file():
@@ -229,10 +260,8 @@ def _summary_source(record: TranscriptRecord) -> tuple[str, str]:
 
 
 @router.post("/{record_id}/summary", response_model=TranscriptSummary)
-async def generate_summary(record_id: str) -> TranscriptSummary:
-    record = await get_record(record_id)
-    if not record:
-        raise HTTPException(status_code=404, detail="Transcript not found")
+async def generate_summary(record_id: str, organizer: SessionRecord = Depends(current_session)) -> TranscriptSummary:
+    record = require_history_access(await get_record(record_id), organizer)
     if record.status != JobStatus.completed:
         raise HTTPException(status_code=409, detail="Transcript must be completed before summarizing")
     transcript, source_hash = _summary_source(record)
@@ -271,10 +300,9 @@ async def generate_summary(record_id: str) -> TranscriptSummary:
 
 
 @router.delete("/{record_id}", status_code=204)
-async def delete_history(record_id: str) -> None:
+async def delete_history(record_id: str, organizer: SessionRecord = Depends(current_session)) -> None:
     await _ensure_loaded()
-    if record_id not in _records:
-        raise HTTPException(status_code=404, detail="Transcript not found")
+    require_history_access(_records.get(record_id), organizer)
     async with _lock:
         record = _records.pop(record_id)
         payload = json.dumps(
@@ -291,4 +319,4 @@ async def delete_history(record_id: str) -> None:
         audio_path = get_settings().data_dir / "audio" / Path(filename).name
         if audio_path.is_file():
             await asyncio.to_thread(audio_path.unlink)
-    await _publish({"type": "deleted", "id": record_id})
+    await _publish({"type": "deleted", "id": record_id, "_access_record": record})

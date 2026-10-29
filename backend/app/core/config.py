@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     api_prefix: str = "/api"
     allowed_origins: str = "*"
     public_app_url: str = "https://d39saojiwcdxjz.cloudfront.net"
+    # Empty until the matching CloudFront origin header is configured.
+    origin_verification_secret: str | None = None
 
     vertex_service_account_json: Path = Path("service_account.json")
     gcp_project: str | None = None
@@ -30,11 +32,11 @@ class Settings(BaseSettings):
     # the websocket with INVALID_ARGUMENT/1007.
     # Gemini 3.8 Live provides low-latency multilingual transcription and
     # automatic language switching for Mix mode.
-    gemini_live_model: str = "gemini-3.8-live"
+    gemini_live_model: str = "gemini-3.5-transcribe-live"
     # Use the generally available multimodal Flash model for live speech.
     # The transcribe preview endpoint was returning RESOURCE_EXHAUSTED for
     # meeting chunks and required a second model call for Tamil translation.
-    gemini_batch_model: str = "gemini-3.8-flash"
+    gemini_batch_model: str = "gemini-3.5-transcribe"
     gemini_text_model: str = "gemini-3.8-flash"
     auto_translate: bool = True
     target_language: Language = Language.tamil
@@ -45,7 +47,7 @@ class Settings(BaseSettings):
     # The generateContent chunk preview is the reliable live-caption path for
     # this deployment. The native Live API handshake can succeed while
     # returning no input transcription events for this model/account.
-    live_native_api_enabled: bool = False
+    live_native_api_enabled: bool = True
     # Gemini Live accepts small continuous PCM frames. The retained full
     # recording is still transcribed after Stop for accuracy and diarization.
     live_stream_chunk_ms: int = 100
@@ -63,7 +65,7 @@ class Settings(BaseSettings):
     # acceptance window short so silence cannot become a new caption.
     # Gemini can emit a speculative final after input stops. Keep this window
     # short so silence cannot become a new live caption.
-    live_voice_activity_window_seconds: float = 1.5
+    live_voice_activity_window_seconds: float = 8.0
     live_finalize_full_audio: bool = True
     max_live_minutes: float = 120.0
     max_upload_mb: int = 20
@@ -92,12 +94,11 @@ class Settings(BaseSettings):
         self.target_language = Language.tamil
         # Keep the persistent streaming connection on the supported live model.
         if self.gemini_live_model in {
-            "gemini-3.5-transcribe-live",
             "gemini-3.5-transcribe-preview",
             "gemini-live-2.5-flash-native-audio",
         }:
-            self.gemini_live_model = "gemini-3.8-live"
-        if "transcribe" in self.gemini_batch_model.lower() or self.gemini_batch_model in {
+            self.gemini_live_model = "gemini-3.5-transcribe-live"
+        if ("transcribe" in self.gemini_batch_model.lower() and self.gemini_batch_model != "gemini-3.5-transcribe") or self.gemini_batch_model in {
             "gemini-2.5-flash",
             "gemini-3.5-flash",
         }:

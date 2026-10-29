@@ -22,8 +22,13 @@ import { createMeeting, deleteManagedMeeting, getManagedMeetingHistory, getManag
 import type { Language, MeetingConnection, SessionInfo, SessionType, TranscriptRecord } from "./types";
 import { SchedulePicker, todayLocal } from "./SchedulePicker";
 
-async function buildJoinQr(roomCode: string): Promise<string> {
-  const joinUrl = `${typeof window !== "undefined" ? window.location.origin : "https://d39saojiwcdxjz.cloudfront.net"}/?session=${encodeURIComponent(roomCode.trim().toUpperCase())}`;
+function joinUrlFor(roomCode: string, invitation: string | null | undefined): string {
+  if (!invitation) throw new Error("The session invitation is unavailable. Reopen the session and try again.");
+  return `${typeof window !== "undefined" ? window.location.origin : "https://d39saojiwcdxjz.cloudfront.net"}/?session=${encodeURIComponent(roomCode.trim().toUpperCase())}#invite=${encodeURIComponent(invitation)}`;
+}
+
+async function buildJoinQr(roomCode: string, invitation: string | null | undefined): Promise<string> {
+  const joinUrl = joinUrlFor(roomCode, invitation);
   if (Platform.OS !== "web") return getSessionQrUrl(roomCode);
   const qr = await import("qrcode");
   return qr.toDataURL(joinUrl, { width: 320, margin: 2, errorCorrectionLevel: "M" });
@@ -153,7 +158,7 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
         startMode,
       );
 
-      const qrUrl = await buildJoinQr(conn.room_code);
+      const qrUrl = await buildJoinQr(conn.room_code, conn.invitation_secret);
       const info = await getSessionInfo(conn.room_code).catch(() => undefined);
       await requestReminderPermission();
       scheduleBrowserReminder(info);
@@ -164,7 +169,7 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
         mode: startMode,
         qrUrl,
         connection: conn,
-        joinUrl: `${typeof window !== "undefined" ? window.location.origin : "https://d39saojiwcdxjz.cloudfront.net"}/?session=${conn.room_code}`,
+        joinUrl: joinUrlFor(conn.room_code, conn.invitation_secret),
         info,
       });
       void getManagedMeetings(authToken).then(setManagedSessions).catch(() => undefined);
@@ -204,9 +209,9 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
           code: session.room_code,
           title: session.title,
           mode: selectedMode,
-          qrUrl: await buildJoinQr(session.room_code),
+          qrUrl: await buildJoinQr(session.room_code, connection.invitation_secret),
           connection,
-          joinUrl: `${typeof window !== "undefined" ? window.location.origin : "https://d39saojiwcdxjz.cloudfront.net"}/?session=${session.room_code}`,
+          joinUrl: joinUrlFor(session.room_code, connection.invitation_secret),
           info: session,
         });
       } else if (session.status === "live") {
@@ -327,7 +332,7 @@ export function SessionManagementScreen({ onOpenCreatedSession, onStartCreatedSe
               </Text>
               <View style={styles.qrImageContainer}>
                 <Image
-                  source={{ uri: activeSession.qrUrl }}
+                  source={{ uri: activeSession.qrUrl, headers: Platform.OS === "web" ? undefined : { Authorization: `Bearer ${authToken}` } }}
                   style={styles.qrImage}
                   resizeMode="contain"
                 />

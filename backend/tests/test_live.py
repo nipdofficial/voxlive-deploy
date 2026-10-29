@@ -135,7 +135,7 @@ def test_live_chunk_requests_provisional_gemini_speakers(monkeypatch) -> None:
         live,
         "get_settings",
         lambda: SimpleNamespace(
-            gemini_text_model="flash-model",
+            gemini_batch_model="transcribe-model",
             gemini_live_timeout_seconds=12.0,
         ),
     )
@@ -158,13 +158,13 @@ def test_live_chunk_requests_provisional_gemini_speakers(monkeypatch) -> None:
 
     assert calls == [
         {
-            "model": "flash-model",
+            "model": "transcribe-model",
             "timestamp_offset": 7.0,
             "include_speakers": True,
             "audio_duration_seconds": 1.0,
             "request_timeout_seconds": 12.0,
             "verify_mixed_language": False,
-            "use_structured_mixed_model": True,
+            "use_structured_mixed_model": False,
                 "preferred_speaker_language": None,
         }
     ]
@@ -278,6 +278,11 @@ def test_live_short_speech_flushes_during_silence_before_stop(monkeypatch, tmp_p
     monkeypatch.setattr(live, "get_settings", lambda: settings)
     monkeypatch.setattr(live, "GeminiService", lambda: object())
 
+    async def authenticate(_token):
+        return SimpleNamespace(user_id="organizer")
+
+    monkeypatch.setattr(live.auth_store, "authenticate", authenticate)
+
     class VoiceThenSilence:
         def __init__(self, *_args):
             self.calls = 0
@@ -323,15 +328,20 @@ def test_live_short_speech_flushes_during_silence_before_stop(monkeypatch, tmp_p
     async def run():
         socket = Socket()
         task = asyncio.create_task(live.live_transcription(socket))
-        assert (await asyncio.wait_for(socket.outgoing.get(), 2))["type"] == "ready"
-        await socket.incoming.put({"bytes": b"\x01\x00" * 1600})
+        ready = await asyncio.wait_for(socket.outgoing.get(), 2)
+        assert ready["type"] == "ready"
+        voiced_frame = b"\x01\x00" * 1600
+        quiet_frame = b"\x02\x00" * 1600
+        await socket.incoming.put({"bytes": voiced_frame})
         for _ in range(9):
-            await socket.incoming.put({"bytes": bytes(3200)})
+            await socket.incoming.put({"bytes": quiet_frame})
         message = await asyncio.wait_for(socket.outgoing.get(), 2)
         assert message["type"] == "transcript"
         assert message["segment"]["text"] == "hello"
         await socket.incoming.put({"text": "stop"})
         await asyncio.wait_for(task, 2)
+        with wave.open(str(tmp_path / "audio" / f"{ready['id']}.wav"), "rb") as saved:
+            assert saved.readframes(saved.getnframes()) == voiced_frame + quiet_frame * 9
 
     asyncio.run(run())
 
@@ -398,9 +408,11 @@ def test_live_mono_language_rejects_transcription_in_wrong_script() -> None:
 def test_default_live_model_is_supported_by_gemini_live_api() -> None:
     from app.core.config import Settings
 
-    assert Settings().gemini_live_model == "gemini-3.8-live"
-    assert Settings(gemini_live_model="gemini-3.5-transcribe-preview").gemini_live_model == "gemini-3.8-live"
-    assert Settings(gemini_live_model="gemini-live-2.5-flash-native-audio").gemini_live_model == "gemini-3.8-live"
+    assert Settings().gemini_live_model == "gemini-3.5-transcribe-live"
+    assert Settings(gemini_live_model="gemini-3.5-transcribe-live").gemini_live_model == "gemini-3.5-transcribe-live"
+    assert Settings(gemini_batch_model="gemini-3.5-transcribe").gemini_batch_model == "gemini-3.5-transcribe"
+    assert Settings(gemini_live_model="gemini-3.5-transcribe-preview").gemini_live_model == "gemini-3.5-transcribe-live"
+    assert Settings(gemini_live_model="gemini-live-2.5-flash-native-audio").gemini_live_model == "gemini-3.5-transcribe-live"
 
 
 def test_placeholder_optional_credentials_are_disabled() -> None:
@@ -432,7 +444,7 @@ def test_live_chunk_disables_gemini_speakers_when_toggle_is_off(monkeypatch) -> 
         live,
         "get_settings",
         lambda: SimpleNamespace(
-            gemini_text_model="flash-model",
+            gemini_batch_model="transcribe-model",
             gemini_live_timeout_seconds=12.0,
         ),
     )

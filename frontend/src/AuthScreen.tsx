@@ -24,15 +24,17 @@ export default function AuthScreen({
   onToggleTheme,
   onSignedIn,
   initialNotice,
+  initialMode = "login",
 }: {
   isDark: boolean;
   onToggleTheme: () => void;
   onSignedIn: (session: AuthSession) => void;
   initialNotice?: string | null;
+  initialMode?: Mode;
 }) {
   const c = authPalette(isDark);
   const styles = useMemo(() => createStyles(c), [isDark]);
-  const [mode, setMode] = useState<Mode>("login");
+  const [mode, setMode] = useState<Mode>(initialMode);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");

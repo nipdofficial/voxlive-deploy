@@ -1,5 +1,6 @@
 import { File as ExpoFile } from "expo-file-system";
 import { Platform } from "react-native";
+import { loadSession } from "./authStorage";
 
 import type { Language, MeetingConnection, SessionInfo, SessionType, TranscriptRecord, TranscriptSummary } from "./types";
 
@@ -18,15 +19,30 @@ export const API_URL = runtimeEnv?.EXPO_PUBLIC_API_URL ?? defaultApiUrl;
 export const WS_URL = API_URL.replace(/^http/, "ws") + "/live";
 export const HISTORY_WS_URL = API_URL.replace(/^http/, "ws") + "/history/events";
 
+function authenticatedFetch(input: string, init: RequestInit = {}): Promise<Response> {
+  const token = loadSession()?.token;
+  const headers = new Headers(init.headers);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  return fetch(input, { ...init, headers });
+}
+
 export async function getHistory(): Promise<TranscriptRecord[]> {
-  const response = await fetch(`${API_URL}/history`);
+  const response = await authenticatedFetch(`${API_URL}/history`);
   if (!response.ok) throw new Error("Could not load transcript history");
   return response.json();
 }
 
 export async function getTranscript(id: string): Promise<TranscriptRecord> {
-  const response = await fetch(`${API_URL}/history/${id}`);
+  const response = await authenticatedFetch(`${API_URL}/history/${encodeURIComponent(id)}`);
   if (!response.ok) throw new Error("Could not load transcript");
+  return response.json();
+}
+
+export async function getAttendeeTranscript(code: string, token: string): Promise<Pick<TranscriptRecord, "segments" | "error">> {
+  const response = await fetch(`${API_URL}/meetings/${encodeURIComponent(code)}/transcript`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) throw new Error("Session access expired or is no longer available");
   return response.json();
 }
 
@@ -34,7 +50,7 @@ export async function updateTranscript(
   id: string,
   patch: { title?: string; segments?: TranscriptRecord["segments"] },
 ): Promise<TranscriptRecord> {
-  const response = await fetch(`${API_URL}/history/${encodeURIComponent(id)}`, {
+  const response = await authenticatedFetch(`${API_URL}/history/${encodeURIComponent(id)}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
@@ -48,7 +64,7 @@ export async function renameTranscriptSpeaker(
   oldName: string,
   newName: string,
 ): Promise<TranscriptRecord> {
-  const response = await fetch(`${API_URL}/history/${encodeURIComponent(id)}/speakers/rename`, {
+  const response = await authenticatedFetch(`${API_URL}/history/${encodeURIComponent(id)}/speakers/rename`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ old_name: oldName, new_name: newName }),
@@ -58,7 +74,7 @@ export async function renameTranscriptSpeaker(
 }
 
 export async function translateTranscript(id: string, targetLanguage: Language): Promise<TranscriptRecord> {
-  const response = await fetch(`${API_URL}/history/${encodeURIComponent(id)}/translate`, {
+  const response = await authenticatedFetch(`${API_URL}/history/${encodeURIComponent(id)}/translate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     // Keep the parameter for caller compatibility, but translation is always Tamil.
@@ -69,7 +85,7 @@ export async function translateTranscript(id: string, targetLanguage: Language):
 }
 
 async function jobAction(id: string, action: "cancel" | "retry"): Promise<{ id: string; status: string }> {
-  const response = await fetch(`${API_URL}/transcribe/${encodeURIComponent(id)}/${action}`, { method: "POST" });
+  const response = await authenticatedFetch(`${API_URL}/transcribe/${encodeURIComponent(id)}/${action}`, { method: "POST" });
   if (!response.ok) throw new Error((await response.text()) || `Could not ${action} job`);
   return response.json();
 }
@@ -78,12 +94,12 @@ export const cancelTranscription = (id: string) => jobAction(id, "cancel");
 export const retryTranscription = (id: string) => jobAction(id, "retry");
 
 export async function deleteTranscript(id: string): Promise<void> {
-  const response = await fetch(`${API_URL}/history/${encodeURIComponent(id)}`, { method: "DELETE" });
+  const response = await authenticatedFetch(`${API_URL}/history/${encodeURIComponent(id)}`, { method: "DELETE" });
   if (!response.ok) throw new Error((await response.text()) || "Could not delete transcript");
 }
 
 export async function generateTranscriptSummary(id: string): Promise<TranscriptSummary> {
-  const response = await fetch(`${API_URL}/history/${encodeURIComponent(id)}/summary`, { method: "POST" });
+  const response = await authenticatedFetch(`${API_URL}/history/${encodeURIComponent(id)}/summary`, { method: "POST" });
   if (!response.ok) {
     let message = "Could not generate summary";
     try {
@@ -142,7 +158,7 @@ export async function submitAudio(
   const timeout = setTimeout(() => controller.abort(), 180_000);
   let response: Response;
   try {
-    response = await fetch(`${API_URL}/transcribe`, {
+    response = await authenticatedFetch(`${API_URL}/transcribe`, {
       method: "POST",
       body: form,
       signal: controller.signal,
@@ -226,15 +242,17 @@ export function joinMeeting(
   roomCode: string,
   displayName: string,
   sharedMic: boolean,
+  invitation: string = "",
 ): Promise<MeetingConnection> {
   return meetingRequest(`/meetings/${encodeURIComponent(roomCode.trim().toUpperCase())}/join`, {
     display_name: displayName,
     shared_mic: sharedMic,
+    invitation,
   });
 }
 
 export async function endMeeting(roomCode: string, hostSecret: string): Promise<{ id: string; status: string }> {
-  const response = await fetch(`${API_URL}/meetings/${encodeURIComponent(roomCode)}/end`, {
+  const response = await authenticatedFetch(`${API_URL}/meetings/${encodeURIComponent(roomCode)}/end`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ host_secret: hostSecret }),
@@ -244,7 +262,7 @@ export async function endMeeting(roomCode: string, hostSecret: string): Promise<
 }
 
 export async function startMeeting(roomCode: string, hostSecret: string): Promise<SessionInfo> {
-  const response = await fetch(`${API_URL}/meetings/${encodeURIComponent(roomCode.trim().toUpperCase())}/start`, {
+  const response = await authenticatedFetch(`${API_URL}/meetings/${encodeURIComponent(roomCode.trim().toUpperCase())}/start`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ host_secret: hostSecret }),
@@ -254,7 +272,7 @@ export async function startMeeting(roomCode: string, hostSecret: string): Promis
 }
 
 export async function updateMeetingLanguage(roomCode: string, hostSecret: string, language: Language): Promise<SessionInfo> {
-  const response = await fetch(`${API_URL}/meetings/${encodeURIComponent(roomCode.trim().toUpperCase())}`, {
+  const response = await authenticatedFetch(`${API_URL}/meetings/${encodeURIComponent(roomCode.trim().toUpperCase())}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ host_secret: hostSecret, language }),
@@ -263,8 +281,11 @@ export async function updateMeetingLanguage(roomCode: string, hostSecret: string
   return response.json();
 }
 
-export async function getSessionInfo(roomCode: string): Promise<SessionInfo> {
-  const response = await fetch(`${API_URL}/meetings/${encodeURIComponent(roomCode.trim().toUpperCase())}`);
+export async function getSessionInfo(roomCode: string, invitation?: string): Promise<SessionInfo> {
+  const url = `${API_URL}/meetings/${encodeURIComponent(roomCode.trim().toUpperCase())}`;
+  const response = invitation
+    ? await fetch(url, { headers: { Authorization: `Invite ${invitation}` } })
+    : await authenticatedFetch(url);
   if (!response.ok) throw new Error("Session not found");
   return response.json();
 }
@@ -274,10 +295,11 @@ export async function submitMeetingFeedback(
   displayName: string,
   rating: number,
   comment: string,
+  attendeeToken: string,
 ): Promise<void> {
   const response = await fetch(`${API_URL}/meetings/${encodeURIComponent(roomCode.trim().toUpperCase())}/feedback`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${attendeeToken}` },
     body: JSON.stringify({ display_name: displayName.trim(), rating, comment: comment.trim() }),
   });
   if (!response.ok) throw new Error((await response.text()) || "Could not submit feedback");

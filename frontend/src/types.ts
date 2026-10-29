@@ -76,6 +76,7 @@ export interface MeetingConnection {
   display_name: string;
   is_host: boolean;
   host_secret?: string | null;
+  invitation_secret?: string | null;
   language?: Language;
   preferred_speaker_language?: Language | null;
   start_mode?: Exclude<SessionType, "Meeting">;
