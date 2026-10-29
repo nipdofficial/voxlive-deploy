@@ -614,12 +614,20 @@ async def live_transcription(websocket: WebSocket) -> None:
                     continue
                 try:
                     await process_fallback_chunk(bytes(fallback_buffer), fallback_offset)
-                    fallback_buffer.clear()
                 except asyncio.CancelledError:
                     return
                 except Exception as exc:
+                    logger.warning("Live chunk preview failed: %s", exc)
                     record.error = f"Live chunk preview delayed: {exc}"
                     await save_record(record)
+                    await websocket.send_json(
+                        {"type": "warning", "message": "Live preview is delayed; audio is still recording"}
+                    )
+                finally:
+                    # A failed chunk must not grow indefinitely or prevent the
+                    # next speech from being processed. The full recording is
+                    # retained separately for the final transcription.
+                    fallback_buffer.clear()
 
         async def receive_live_transcripts() -> None:
             nonlocal last_final_end
